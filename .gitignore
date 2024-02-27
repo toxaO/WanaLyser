@@ -1,3 +1,10 @@
+#my setting
+.DS_Store
+.envrc
+Session.vim
+mypy.ini
+out/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
