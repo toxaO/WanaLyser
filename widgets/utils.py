@@ -1,5 +1,6 @@
 import os
 import sys
+
 import tkinter
 from tkinter import filedialog, messagebox, ttk
 
@@ -18,10 +19,21 @@ class Test(ctk.CTk):
         self.path_frame = PathFrame(master=self)
         self.path_frame.grid(row=0, column=0)
 
+        self.test_button = ctk.CTkButton(self, text="Test", command=self.test_message)
+        self.test_button.grid(row=1, column=0)
+
+    def test_message(self):
+        message=self.path_frame.get_path()
+        if message is None:
+            message = "パスがありません"
+        messagebox.showinfo(title="Test message", message=message)
+
 
 class PathFrame(ctk.CTkFrame):
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
+
+        self.iDirPath: str = ""
 
         self.label = ctk.CTkLabel(self, text="ファイルパスを選択してください")
         self.label.grid(row=0, column=0, padx=10)
@@ -37,9 +49,16 @@ class PathFrame(ctk.CTkFrame):
     def dirdialog_clicked(self, iDir: str = ""):
         if iDir == "":
             iDir = os.path.abspath(os.path.dirname(__file__))
-        iDirPath = filedialog.askdirectory(initialdir=iDir)
+        self.iDirPath = filedialog.askdirectory(initialdir=iDir)
         self.path_entry.delete(0, "end")
-        self.path_entry.insert(0, iDirPath)
+        self.path_entry.insert(0, self.iDirPath)
+
+    def get_path(self) -> str | None:
+        if self.iDirPath == "":
+            messagebox.showinfo(title="情報", message="フォルダを入力して下さい")
+            return None
+        else:
+            return self.iDirPath
 
 
 if __name__ == "__main__":
