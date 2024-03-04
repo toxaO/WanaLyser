@@ -1,3 +1,0 @@
-import numpy as np
-
-class Test(np.nditer): ...

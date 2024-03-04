@@ -1,3 +1,0 @@
-from numpy.core._multiarray_tests import identityhash_tester as identityhash_tester
-
-def test_identity_hashtable(key_length, length) -> None: ...

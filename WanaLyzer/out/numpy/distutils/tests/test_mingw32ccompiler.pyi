@@ -1,3 +1,0 @@
-from numpy.distutils import mingw32ccompiler as mingw32ccompiler
-
-def test_build_import() -> None: ...

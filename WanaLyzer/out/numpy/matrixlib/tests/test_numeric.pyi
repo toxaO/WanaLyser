@@ -1,6 +1,0 @@
-from numpy.testing import assert_equal as assert_equal
-
-class TestDot:
-    def test_matscalar(self) -> None: ...
-
-def test_diagonal() -> None: ...

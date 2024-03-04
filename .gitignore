@@ -4,6 +4,7 @@
 Session.vim
 mypy.ini
 out/*
+WanaLyzer/out/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

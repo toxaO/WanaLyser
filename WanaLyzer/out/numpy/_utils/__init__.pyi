@@ -1,3 +1,0 @@
-from ._convertions import asbytes as asbytes, asunicode as asunicode
-
-def set_module(module): ...

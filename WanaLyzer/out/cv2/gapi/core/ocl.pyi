@@ -1,3 +1,0 @@
-import cv2
-
-def kernels() -> cv2.GKernelPackage: ...

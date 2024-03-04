@@ -1,3 +1,0 @@
-from numpy.testing import IS_WASM as IS_WASM
-
-def test_limited_api(tmp_path) -> None: ...

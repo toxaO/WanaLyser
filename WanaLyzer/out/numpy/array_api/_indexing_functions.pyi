@@ -1,3 +1,0 @@
-from ._array_object import Array as Array
-
-def take(x: Array, indices: Array, *, axis: Optional[int] = None) -> Array: ...

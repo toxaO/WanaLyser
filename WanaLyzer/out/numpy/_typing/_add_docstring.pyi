@@ -1,3 +1,0 @@
-from ._array_like import NDArray as NDArray
-
-def add_newdoc(name: str, value: str, doc: str) -> None: ...

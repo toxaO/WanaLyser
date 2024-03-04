@@ -1,6 +1,0 @@
-from _typeshed import Incomplete
-
-__all__ = ['getargspec', 'formatargspec']
-
-def getargspec(func): ...
-def formatargspec(args, varargs: Incomplete | None = None, varkw: Incomplete | None = None, defaults: Incomplete | None = None, formatarg=..., formatvarargs=..., formatvarkw=..., formatvalue=..., join=...): ...

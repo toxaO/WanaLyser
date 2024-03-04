@@ -1,3 +1,0 @@
-from . import __version__ as __version__
-
-def deprecate(deprecated: str, when: int | None, replacement: str | None = None, *, action: str | None = None, plural: bool = False) -> None: ...

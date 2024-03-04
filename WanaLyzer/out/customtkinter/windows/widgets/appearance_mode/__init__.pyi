@@ -1,2 +1,0 @@
-from .appearance_mode_base_class import CTkAppearanceModeBaseClass as CTkAppearanceModeBaseClass
-from .appearance_mode_tracker import AppearanceModeTracker as AppearanceModeTracker

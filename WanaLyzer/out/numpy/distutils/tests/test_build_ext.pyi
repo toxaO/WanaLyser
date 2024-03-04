@@ -1,3 +1,0 @@
-from numpy.testing import IS_WASM as IS_WASM
-
-def test_multi_fortran_libs_link(tmp_path) -> None: ...
