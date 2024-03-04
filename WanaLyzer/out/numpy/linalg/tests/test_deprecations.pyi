@@ -1,0 +1,3 @@
+from numpy.testing import assert_warns as assert_warns
+
+def test_qr_mode_full_future_warning() -> None: ...

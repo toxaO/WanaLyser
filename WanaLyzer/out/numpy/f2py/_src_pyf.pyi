@@ -1,0 +1,29 @@
+from _typeshed import Incomplete
+
+routine_start_re: Incomplete
+routine_end_re: Incomplete
+function_start_re: Incomplete
+
+def parse_structure(astr): ...
+
+template_re: Incomplete
+named_re: Incomplete
+list_re: Incomplete
+
+def find_repl_patterns(astr): ...
+def find_and_remove_repl_patterns(astr): ...
+
+item_re: Incomplete
+
+def conv(astr): ...
+def unique_key(adict): ...
+
+template_name_re: Incomplete
+
+def expand_sub(substr, names): ...
+def process_str(allstr): ...
+
+include_src_re: Incomplete
+
+def resolve_includes(source): ...
+def process_file(source): ...

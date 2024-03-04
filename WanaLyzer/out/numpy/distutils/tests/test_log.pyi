@@ -1,0 +1,9 @@
+from _typeshed import Incomplete
+from numpy.distutils import log as log
+
+def setup_module() -> None: ...
+def teardown_module() -> None: ...
+
+r_ansi: Incomplete
+
+def test_log_prefix(func_name) -> None: ...

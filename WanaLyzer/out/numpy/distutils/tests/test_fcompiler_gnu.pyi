@@ -1,0 +1,13 @@
+from _typeshed import Incomplete
+from numpy.testing import assert_ as assert_
+
+g77_version_strings: Incomplete
+gfortran_version_strings: Incomplete
+
+class TestG77Versions:
+    def test_g77_version(self) -> None: ...
+    def test_not_g77(self) -> None: ...
+
+class TestGFortranVersions:
+    def test_gfortran_version(self) -> None: ...
+    def test_not_gfortran(self) -> None: ...

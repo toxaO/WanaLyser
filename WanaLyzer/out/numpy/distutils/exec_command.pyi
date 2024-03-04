@@ -1,0 +1,6 @@
+from _typeshed import Incomplete
+
+__all__ = ['exec_command', 'find_executable']
+
+def find_executable(exe, path: Incomplete | None = None, _cache={}): ...
+def exec_command(command, execute_in: str = '', use_shell: Incomplete | None = None, use_tee: Incomplete | None = None, _with_python: int = 1, **env): ...

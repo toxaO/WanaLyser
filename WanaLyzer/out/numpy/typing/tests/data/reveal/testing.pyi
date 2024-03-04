@@ -1,0 +1,19 @@
+import numpy as np
+import numpy.typing as npt
+from collections.abc import Callable
+from typing import Any, TypeVar
+
+AR_f8: npt.NDArray[np.float64]
+AR_i8: npt.NDArray[np.int64]
+bool_obj: bool
+suppress_obj: np.testing.suppress_warnings
+FT = TypeVar('FT', bound=Callable[..., Any])
+
+def func() -> int: ...
+def func2(x: npt.NDArray[np.number[Any]], y: npt.NDArray[np.number[Any]]) -> npt.NDArray[np.bool_]: ...
+def func3(a: int) -> bool: ...
+
+class Test: ...
+
+def decorate(a: FT) -> FT: ...
+def func4(a: int, b: str) -> bool: ...

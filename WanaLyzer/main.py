@@ -10,7 +10,7 @@ class App(customtkinter.CTk):
         self.geometry("600x500")
         self.title("WanaLyzer3.0")
 
-        self.path_frame = widgets.PathFrame(self)
+        self.path_frame = widgets.FolderPathFrame(self)
         self.path_frame.grid(row=0, column=0)
 
 

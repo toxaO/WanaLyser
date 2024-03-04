@@ -1,0 +1,6 @@
+from _typeshed import Incomplete
+from numpy.distutils import log as log
+from numpy.distutils.ccompiler import replace_method as replace_method
+
+def UnixCCompiler__compile(self, obj, src, ext, cc_args, extra_postargs, pp_opts) -> None: ...
+def UnixCCompiler_create_static_lib(self, objects, output_libname, output_dir: Incomplete | None = None, debug: int = 0, target_lang: Incomplete | None = None) -> None: ...

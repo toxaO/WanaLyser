@@ -1,0 +1,9 @@
+from .. import all as all
+from .._creation_functions import asarray as asarray
+from .._dtypes import float64 as float64, int8 as int8
+from .._manipulation_functions import concat as concat, reshape as reshape, stack as stack
+from numpy.testing import assert_raises as assert_raises
+
+def test_concat_errors(): ...
+def test_stack_errors(): ...
+def test_reshape_copy(): ...

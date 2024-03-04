@@ -1,0 +1,6 @@
+from _typeshed import Incomplete
+
+__all__ = ['build_and_import_extension', 'compile_extension_module']
+
+def build_and_import_extension(modname, functions, *, prologue: str = '', build_dir: Incomplete | None = None, include_dirs=[], more_init: str = ''): ...
+def compile_extension_module(name, builddir, include_dirs, source_string, libraries=[], library_dirs=[]): ...

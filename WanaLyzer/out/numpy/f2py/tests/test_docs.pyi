@@ -1,0 +1,13 @@
+from . import util as util
+from _typeshed import Incomplete
+from numpy.testing import assert_array_equal as assert_array_equal, assert_equal as assert_equal
+
+def get_docdir(): ...
+
+pytestmark: Incomplete
+
+class TestDocAdvanced(util.F2PyTest):
+    sources: Incomplete
+    def test_asterisk1(self) -> None: ...
+    def test_asterisk2(self) -> None: ...
+    def test_ftype(self) -> None: ...

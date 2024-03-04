@@ -1,0 +1,33 @@
+from ._array_object import Array as Array
+from ._typing import Dtype as Dtype
+from collections.abc import Sequence as Sequence
+from dataclasses import dataclass
+from typing import List, Tuple, Union
+
+def astype(x: Array, dtype: Dtype, *, copy: bool = True) -> Array: ...
+def broadcast_arrays(*arrays: Array) -> List[Array]: ...
+def broadcast_to(x: Array, shape: Tuple[int, ...]) -> Array: ...
+def can_cast(from_: Union[Dtype, Array], to: Dtype) -> bool: ...
+
+@dataclass
+class finfo_object:
+    bits: int
+    eps: float
+    max: float
+    min: float
+    smallest_normal: float
+    dtype: Dtype
+    def __init__(self, bits, eps, max, min, smallest_normal, dtype) -> None: ...
+
+@dataclass
+class iinfo_object:
+    bits: int
+    max: int
+    min: int
+    dtype: Dtype
+    def __init__(self, bits, max, min, dtype) -> None: ...
+
+def finfo(type: Union[Dtype, Array]) -> finfo_object: ...
+def iinfo(type: Union[Dtype, Array]) -> iinfo_object: ...
+def isdtype(dtype: Dtype, kind: Union[Dtype, str, Tuple[Union[Dtype, str], ...]]) -> bool: ...
+def result_type(*arrays_and_dtypes: Union[Array, Dtype]) -> Dtype: ...
