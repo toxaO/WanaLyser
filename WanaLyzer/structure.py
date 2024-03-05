@@ -9,17 +9,19 @@ class Rectungle:
     def __init__(self, x: int, y: int, width: int, height: int) -> None:
         self.x = x
         self.y = y
-        self.nw = (x, y)
-        self.ne = (x + width - 1, y)
-        self.se = (x + width - 1, y + height - 1)
-        self.sw = (x, y + height - 1)
+        self.n = y
+        self.e = x
+        self.w = x + width - 1
+        self.s = y + height - 1
+        self.nw = (self.w, self.n)
+        self.ne = (self.e, self.n)
+        self.se = (self.e, self.s)
+        self.sw = (self.w, self.s)
         self.width = width
         self.height = height
         self.center = (self.x + self.width / 2, self.y + self.height / 2)
-        self.points = (self.nw, self.sw, self.se, self.ne)
 
 
-@dataclasses.dataclass
 class Circle:
     def __init__(self, x: int, y: int, r: int) -> None:
         self.r = r
