@@ -1,5 +1,4 @@
 import os
-import tkinter as tk
 from tkinter import messagebox
 
 import customtkinter as ctk
@@ -11,6 +10,7 @@ from PIL import Image, ImageTk
 
 COLOR_GREEN = (0, 255, 0)
 COLOR_RED = (0, 0, 255)
+PIXEL_SIZE = 0.242
 
 
 def pil_to_cv2(pil_image):
@@ -60,72 +60,173 @@ def cv2_to_resize_tk(cv2_image, size=(300, 300)):
 
 
 class ImageDataHolder:
-    def __init__(self, image_path: str, beam_thresh: int, ball_thresh: int) -> None:
+    def __init__(
+        self,
+        img_path: str = "",
+        beam_thresh: int = 0,
+        ball_thresh: int = 100,
+        pixel_size: float = PIXEL_SIZE,
+    ) -> None:
         """
         読み込んだ画像の情報をまとめて保持するクラス
         1024x1024サイズのbmpを想定
         dcmはあとで対応
         """
-        filetype = os.path.splitext(image_path)[1]  # 拡張子
+        self.beam_thresh = beam_thresh
+        self.ball_thresh = ball_thresh
+        self.pixel_size = pixel_size
+        self.setup(img_path, beam_thresh, ball_thresh)
+
+    def setup(
+        self,
+        img_path: str,
+        beam_thresh: int | None = None,
+        ball_thresh: int | None = None,
+    ):
+        if beam_thresh is None:
+            beam_thresh = self.beam_thresh
+        if ball_thresh is None:
+            ball_thresh = self.ball_thresh
+        filetype = os.path.splitext(img_path)[1]  # 拡張子
         self.imread = False
         if filetype == ".dcm":
-            messagebox.showinfo("まだ未対応")
+            # todo!
+            # support dicom
+            messagebox.showinfo("info", "dcm file is not yet applied")
             self.imread = False
             return
+        elif filetype == "":
+            return
         elif filetype == ".bmp":
-            self.img_name = os.path.basename(image_path)
+            self.img_name = os.path.basename(img_path)
             # 日本語ファイル名対応のため、cv2.imread()は使用せず
-            img_pil = Image.open(image_path)
+            img_pil = Image.open(img_path)
             self.img_raw = pil_to_cv2(img_pil)
             self.update_images(beam_thresh, ball_thresh)
             self.imread = True
         else:
-            messagebox.showinfo("未対応")
+            messagebox.showinfo("info", "file type is not approriate")
             self.imread = False
             return
 
-    def update_images(self, beam_thresh, ball_thresh):
-        self.update_beam_threshold(beam_thresh)
-        self.update_ball_threshold(ball_thresh)
+    def update_images(
+        self, beam_thresh: int | None = None, ball_thresh: int | None = None
+    ):
+        if beam_thresh is not None:
+            self.update_beam_threshold(beam_thresh)
+        if ball_thresh is not None:
+            self.update_ball_threshold(ball_thresh)
+        if not self.beam_contour.rect_contour():
+            self.rect_area = (0, 1023)
         self.draw_contour_imgage()
 
     def update_beam_threshold(self, threshold):
         self.beam_contour = Contour(self.img_raw, threshold)
-        beam_pos = self.beam_contour.rect_contour()
-        if beam_pos.width > beam_pos.height:
-            self.focus_area = (
-                512 - int(beam_pos.width / 2) - 25,
-                512 + int(beam_pos.width / 2) + 25,
-            )
+        self.beam_pos = self.beam_contour.rect_contour()
+        if self.beam_pos is not None:
+            if self.beam_pos.width > self.beam_pos.height:
+                self.rect_area = (
+                    512 - int(self.beam_pos.width / 2) - 25,
+                    512 + int(self.beam_pos.width / 2) + 25,
+                )
+            else:
+                self.rect_area = (
+                    512 - int(self.beam_pos.height / 2) - 25,
+                    512 + int(self.beam_pos.height / 2) + 25,
+                )
+            if self.beam_pos.width > 1023 - 25 or self.beam_pos.height > 1023 - 25:
+                self.rect_area = (0, 1023)
         else:
-            self.focus_area = (
-                512 - int(beam_pos.height / 2) - 25,
-                512 + int(beam_pos.height / 2) + 25,
-            )
-        if beam_pos.width > 1000 or beam_pos.height > 1000:
-            self.focus_area = (0, 1023)
+            self.rect_area = (0, 1023)
 
     def update_ball_threshold(self, threshold):
         self.ball_contour = Contour(self.img_raw, threshold)
+        self.ball_pos = self.ball_contour.circle_contour()
+        if self.ball_pos is not None:
+            self.ball_area = (
+                512 - int(self.ball_pos.width / 2) - 50,
+                512 + int(self.ball_pos.width / 2) + 50,
+            )
+            if self.ball_pos.width > 1023 - 25:
+                self.ball_area = (0, 1023)
+        else:
+            self.ball_area = (0, 1023)
 
     def draw_contour_imgage(self):
-        beam_pos = self.beam_contour.rect_contour()
-        ball_pos = self.ball_contour.circle_contour()
+        self.beam_pos = self.beam_contour.rect_contour()
+        self.ball_pos = self.ball_contour.circle_contour()
         self.img_all_contoured = self.img_raw.copy()
-        cv2.rectangle(self.img_all_contoured, beam_pos.nw, beam_pos.se, COLOR_GREEN)
-        cv2.circle(self.img_all_contoured, ball_pos.center, ball_pos.r, COLOR_RED)
-        self.img_all_contoured_focused = self.img_all_contoured[
-            self.focus_area[0] : self.focus_area[1],
-            self.focus_area[0] : self.focus_area[1],
-        ]
+        img_beam_binary = self.beam_contour.img_binary.copy()
+        img_ball_binary = self.ball_contour.img_binary.copy()
+        self.img_beam_contoured = cv2.cvtColor(
+                img_beam_binary, cv2.COLOR_GRAY2BGR)
+        self.img_ball_contoured = cv2.cvtColor(
+                img_ball_binary, cv2.COLOR_GRAY2BGR)
+        if self.beam_pos is not None:
+            # beam contour
+            cv2.rectangle(
+                self.img_beam_contoured, self.beam_pos.nw, self.beam_pos.se, COLOR_GREEN
+            )
+            cv2.rectangle(
+                self.img_all_contoured, self.beam_pos.nw, self.beam_pos.se, COLOR_GREEN
+            )
+            # beam center line
+            cv2.line(
+                self.img_all_contoured,
+                self.beam_pos.nw,
+                self.beam_pos.se,
+                COLOR_GREEN,
+                1,
+            )
+            cv2.line(
+                self.img_all_contoured,
+                self.beam_pos.ne,
+                self.beam_pos.sw,
+                COLOR_GREEN,
+                1,
+            )
+
+        if self.ball_pos is not None:
+            cv2.circle(
+                self.img_ball_contoured,
+                self.ball_pos.center,
+                self.ball_pos.r,
+                COLOR_RED,
+            )
+            cv2.circle(
+                self.img_all_contoured, self.ball_pos.center, self.ball_pos.r, COLOR_RED
+            )
+            cv2.line(
+                self.img_all_contoured, self.ball_pos.n, self.ball_pos.s, COLOR_RED, 1
+            )
+            cv2.line(
+                self.img_all_contoured, self.ball_pos.e, self.ball_pos.w, COLOR_RED, 1
+            )
+        # todo
+        # 各コンツールの中心を把握するためのlineをひく
+        if self.beam_pos is not None:
+            self.img_beam_contoured = self.img_beam_contoured[
+                self.rect_area[0] : self.rect_area[1],
+                self.rect_area[0] : self.rect_area[1],
+            ]
+            self.img_ball_contoured = self.img_ball_contoured[
+                self.ball_area[0] : self.ball_area[1],
+                self.ball_area[0] : self.ball_area[1],
+            ]
+            self.img_all_contoured_focused = self.img_all_contoured[
+                self.rect_area[0] : self.rect_area[1],
+                self.rect_area[0] : self.rect_area[1],
+            ]
+        else:
+            self.img_all_contoured_focused = self.img_all_contoured.copy()
 
     def return_resize_imgaeTk(self) -> list[ImageTk.PhotoImage]:
         imgs = [
-            self.img_raw,
-            self.img_all_contoured,
             self.img_all_contoured_focused,
-            self.beam_contour.img_binary,
-            self.ball_contour.img_binary,
+            self.img_all_contoured,
+            self.img_beam_contoured,
+            self.img_ball_contoured,
+            self.img_raw,
         ]
         resized_imgs = []
         for img in imgs:
@@ -136,13 +237,23 @@ class ImageDataHolder:
 
     def return_name_list(self) -> list[str]:
         names = [
-            self.img_name + "_raw",
-            self.img_name + "_contour",
             self.img_name + "_focus",
+            self.img_name + "_contour",
             self.img_name + "_beam_bi",
             self.img_name + "_ball_bi",
+            self.img_name + "_raw",
         ]
         return names
+
+    def return_center_sub(self) -> tuple[float, float] | None:
+        if self.ball_pos is not None and self.beam_pos is not None:
+            result = []
+            for beam, ball in zip(self.beam_pos.center, self.ball_pos.center):
+                # print((beam - ball) * self.pixel_size)
+                result.append((beam - ball) * self.pixel_size)
+            return tuple(result)
+        else:
+            return None
 
 
 class Contour:
@@ -171,61 +282,98 @@ class Contour:
         self.update_min_contour()
 
     def update_min_contour(self):
-        self.min_contour = min(self.contours, key=lambda x: cv2.contourArea(x))
+        if self.contours:
+            self.min_contour = min(self.contours, key=lambda x: cv2.contourArea(x))
+        else:
+            self.min_contour = None
 
-    def rect_contour(self):
-        x, y, w, h = cv2.boundingRect(self.min_contour)
-        return st.Rectungle(x, y, w, h)
+    def rect_contour(self) -> st.Rectungle | None:
+        if self.min_contour is not None:
+            x, y, w, h = cv2.boundingRect(self.min_contour)
+            return st.Rectungle(x, y, w, h)
+        else:
+            return None
 
-    def circle_contour(self):
-        (x, y), r = cv2.minEnclosingCircle(self.min_contour)
-        return st.Circle(int(x), int(y), int(r))
-
-
-def button_callback():
-    img_path = filepath_frame.get_path()
-    beam_thresh = slider_frame.get_value("beam_thresh")
-    ball_thresh = slider_frame.get_value("ball_thresh")
-    global idh
-    idh = ImageDataHolder(img_path, beam_thresh, ball_thresh)
-    image_frame.set_from_ImageNameSet(
-        idh.return_resize_imgaeTk(), idh.return_name_list()
-    )
+    def circle_contour(self) -> st.Circle | None:
+        if self.min_contour is not None:
+            (x, y), r = cv2.minEnclosingCircle(self.min_contour)
+            return st.Circle(int(x), int(y), int(r))
+        else:
+            return None
 
 
-def slider_callback(_):
-    beam_thresh = slider_frame.get_value("beam_thresh")
-    ball_thresh = slider_frame.get_value("ball_thresh")
-    global idh
+def button_callback(idh: ImageDataHolder):
+    def callback():
+        img_path = filepath_frame.get_path()
+        beam_thresh = slider_frame.get_value("beam_thresh")
+        ball_thresh = slider_frame.get_value("ball_thresh")
+        idh.setup(img_path, beam_thresh, ball_thresh)
+        if idh.imread:
+            image_frame.set_from_ImageNameSet(
+                idh.return_resize_imgaeTk(), idh.return_name_list()
+            )
+            print(idh.return_center_sub())
+
+    return callback
+
+
+def beam_slider(val, idh):
+    beam_thresh = val
     if idh.imread:
-        idh.update_images(beam_thresh, ball_thresh)
+        idh.update_images(beam_thresh=beam_thresh)
         image_frame.set_from_ImageNameSet(
             idh.return_resize_imgaeTk(), idh.return_name_list()
         )
+        idh.return_center_sub()
+
+
+def ball_slider(val, idh):
+    ball_thresh = val
+    if idh.imread:
+        idh.update_images(ball_thresh=ball_thresh)
+        image_frame.set_from_ImageNameSet(
+            idh.return_resize_imgaeTk(), idh.return_name_list()
+        )
+        idh.return_center_sub()
 
 
 if __name__ == "__main__":
     img = "tests/img/testset/01.bmp"
     app = ctk.CTk()
-    img_read = False
-    idh: ImageDataHolder
+    idh = ImageDataHolder()
 
     # filepath_frame
     filepath_frame = widgets.FilePathFrame(app, iFile=img)
-    filepath_frame.grid(row=0, column=0)
 
     # canvas_frame
     image_frame = widgets.ImageFrame(app)
-    image_frame.grid(row=1, column=0)
 
     # slider_frame
-    slider_list = [widgets.SliderFrameParams("beam_thresh", 0, 255, 255, 0, slider_callback),
-                   widgets.SliderFrameParams("ball_thresh", 0, 255, 255, 100, slider_callback)]
-    slider_frame = widgets.SliderFrame(app, "thresh", slider_list)
-    slider_frame.grid(row=1, column=1, sticky="n")
+    slider_list = [
+        widgets.SliderFrameParams("beam_thresh", 0, 255, 255, 0, beam_slider, [idh]),
+        widgets.SliderFrameParams("ball_thresh", 0, 255, 255, 100, ball_slider, [idh]),
+    ]
+    slider_frame = widgets.SliderFrame(app, "閾値（値0ならOTSU法）", slider_list)
 
     # run button
-    button = ctk.CTkButton(app, text="read", command=button_callback)
-    button.grid(row=0, column=1)
+    button = ctk.CTkButton(app, text="read", command=button_callback(idh))
+
+    # result frame
+    result_frame = ctk.CTkFrame(app)
+    desc_label = ctk.CTkLabel(result_frame,
+                              text="ballを基準に照射野中心は").pack()
+    display_label = ctk.CTkLabel(result_frame).pack()
+
+    # place widgets
+    # row 0
+    filepath_frame.grid(row=0, column=0)
+    button.grid(row=0, column=1, padx=10, pady=10, sticky="news")
+
+    # row 1
+    image_frame.grid(row=1, column=0, rowspan=2)
+    slider_frame.grid(row=1, column=1, padx=10, pady=10, sticky="n")
+
+    # row 2
+    result_frame.grid(row=2, column=1, sticky= "news", padx=10, pady=10)
 
     app.mainloop()

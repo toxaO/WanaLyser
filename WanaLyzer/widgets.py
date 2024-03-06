@@ -223,6 +223,7 @@ class SliderFrame(ctk.CTkFrame):
                     param.callback(value)
                 master.val = value
         return callback
+    # !callbackの際には第1引数にmaster.varの値が入る
 
     def get_value(self, attr: str) -> int:
         master = getattr(self, attr)

@@ -2,8 +2,6 @@ import dataclasses
 
 from PIL import ImageTk
 
-PIXEL_SIZE = 0.242
-
 
 class Rectungle:
     def __init__(self, x: int, y: int, width: int, height: int) -> None:
@@ -26,18 +24,12 @@ class Circle:
     def __init__(self, x: int, y: int, r: int) -> None:
         self.r = r
         self.center = (x, y)
-
-
-@dataclasses.dataclass
-class Params:
-    """
-    ビームサイズはmmで指定
-    ±5mmで照射野検出
-    """
-
-    def __init__(self, beam_size: int) -> None:
-        self.beam_max = int((beam_size + 5) / PIXEL_SIZE)
-        self.beam_min = int((beam_size - 5) / PIXEL_SIZE)
+        self.width = 2 * r
+        self.height = 2 * r
+        self.n = (x, y - r)
+        self.e = (x + r, y)
+        self.w = (x - r, y)
+        self.s = (x, y + r)
 
 
 @dataclasses.dataclass
