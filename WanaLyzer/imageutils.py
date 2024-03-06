@@ -311,15 +311,15 @@ class Previewer(ctk.CTk):
         self.image_frame = widgets.ImageFrame(self)
         slider_params = [
             widgets.SliderFrameParams(
-                "beam_thresh", 0, 255, 255, 0, self.beam_slider, [self.idh]
+                "beam_thresh", 0, 255, 255, 0, self.beam_slider
             ),
             widgets.SliderFrameParams(
-                "ball_thresh", 0, 255, 255, 100, self.ball_slider, [self.idh]
+                "ball_thresh", 0, 255, 255, 100, self.ball_slider
             ),
         ]
         self.slider_frame = widgets.SliderFrame(self, "threshold", slider_params)
         self.read_img_button = ctk.CTkButton(
-            self, text="read image", command=self.button_callback(self.idh)
+            self, text="read image", command=self.button_callback
         )
         self.result_frame = ctk.CTkFrame(self)
         self.desc_label = ctk.CTkLabel(
@@ -339,112 +339,37 @@ class Previewer(ctk.CTk):
         # row 2
         self.result_frame.grid(row=2, column=1, sticky="news", padx=10, pady=10)
 
-    def button_callback(self, idh: ImageDataHolder):
-        def callback():
-            img_path = self.filepath_frame.get_path()
-            beam_thresh = self.slider_frame.get_value("beam_thresh")
-            ball_thresh = self.slider_frame.get_value("ball_thresh")
-            idh.setup(img_path, beam_thresh, ball_thresh)
-            if idh.imread:
-                self.image_frame.set_from_ImageNameSet(
-                    idh.return_resize_imgaeTk(), idh.return_name_list()
-                )
-                print(idh.return_center_sub())
+    def button_callback(self):
+        img_path = self.filepath_frame.get_path()
+        beam_thresh = self.slider_frame.get_value("beam_thresh")
+        ball_thresh = self.slider_frame.get_value("ball_thresh")
+        self.idh.setup(img_path, beam_thresh, ball_thresh)
+        if self.idh.imread:
+            self.image_frame.set_from_ImageNameSet(
+                self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
+            )
+            print(self.idh.return_center_sub())
 
-        return callback
-
-    def beam_slider(self, val, idh):
+    def beam_slider(self, val):
         beam_thresh = val
-        if idh.imread:
-            idh.update_images(beam_thresh=beam_thresh)
+        if self.idh.imread:
+            self.idh.update_images(beam_thresh=beam_thresh)
             self.image_frame.set_from_ImageNameSet(
-                idh.return_resize_imgaeTk(), idh.return_name_list()
+                self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
             )
-            idh.return_center_sub()
+            self.idh.return_center_sub()
 
-    def ball_slider(self, val, idh):
+    def ball_slider(self, val):
         ball_thresh = val
-        if idh.imread:
-            idh.update_images(ball_thresh=ball_thresh)
+        if self.idh.imread:
+            self.idh.update_images(ball_thresh=ball_thresh)
             self.image_frame.set_from_ImageNameSet(
-                idh.return_resize_imgaeTk(), idh.return_name_list()
+                self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
             )
-            idh.return_center_sub()
-
-
-# def button_callback(idh: ImageDataHolder):
-#     def callback():
-#         img_path = filepath_frame.get_path()
-#         beam_thresh = slider_frame.get_value("beam_thresh")
-#         ball_thresh = slider_frame.get_value("ball_thresh")
-#         idh.setup(img_path, beam_thresh, ball_thresh)
-#         if idh.imread:
-#             image_frame.set_from_ImageNameSet(
-#                 idh.return_resize_imgaeTk(), idh.return_name_list()
-#             )
-#             print(idh.return_center_sub())
-
-#     return callback
-
-
-# def beam_slider(val, idh):
-#     beam_thresh = val
-#     if idh.imread:
-#         idh.update_images(beam_thresh=beam_thresh)
-#         image_frame.set_from_ImageNameSet(
-#             idh.return_resize_imgaeTk(), idh.return_name_list()
-#         )
-#         idh.return_center_sub()
-
-
-# def ball_slider(val, idh):
-#     ball_thresh = val
-#     if idh.imread:
-#         idh.update_images(ball_thresh=ball_thresh)
-#         image_frame.set_from_ImageNameSet(
-#             idh.return_resize_imgaeTk(), idh.return_name_list()
-#         )
-#         idh.return_center_sub()
+            self.idh.return_center_sub()
 
 
 if __name__ == "__main__":
     img = "tests/img/testset/01.bmp"
     app = Previewer(img)
     app.mainloop()
-    # app = ctk.CTk()
-    # idh = ImageDataHolder()
-
-    # # filepath_frame
-    # filepath_frame = widgets.FilePathFrame(app, iFile=img)
-
-    # # canvas_frame
-    # image_frame = widgets.ImageFrame(app)
-
-    # # slider_frame
-    # slider_list = [
-    #     widgets.SliderFrameParams("beam_thresh", 0, 255, 255, 0, beam_slider, [idh]),
-    #     widgets.SliderFrameParams("ball_thresh", 0, 255, 255, 100, ball_slider, [idh]),
-    # ]
-    # slider_frame = widgets.SliderFrame(app, "閾値（値0ならOTSU法）", slider_list)
-
-    # # run button
-    # button = ctk.CTkButton(app, text="read", command=button_callback(idh))
-
-    # # result frame
-    # result_frame = ctk.CTkFrame(app)
-    # desc_label = ctk.CTkLabel(result_frame, text="ballを基準に照射野中心は").pack()
-    # display_label = ctk.CTkLabel(result_frame).pack()
-
-    # # place widgets
-    # # row 0
-    # filepath_frame.grid(row=0, column=0)
-    # button.grid(row=0, column=1, padx=10, pady=10, sticky="news")
-
-    # # row 1
-    # image_frame.grid(row=1, column=0, rowspan=2)
-    # slider_frame.grid(row=1, column=1, padx=10, pady=10, sticky="n")
-
-    # # row 2
-    # result_frame.grid(row=2, column=1, sticky="news", padx=10, pady=10)
-
-    # app.mainloop()
