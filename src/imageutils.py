@@ -3,6 +3,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 import cv2
+import logger as lg
 import numpy
 import structure as st
 import widgets
@@ -15,48 +16,20 @@ PIXEL_SIZE = 0.242
 
 def pil_to_cv2(pil_image):
     "PIL -> CV2"
-
     # pil_imageをNumPy配列に変換
     pil_image_array = numpy.array(pil_image)
-
     # RGB -> BGR によりCV2画像オブジェクトに変換
     cv2_image = cv2.cvtColor(pil_image_array, cv2.COLOR_RGB2BGR)
-
     return cv2_image
 
 
 def cv2_to_pil(cv2_image):
     "CV2 -> PIL"
-
     # BGR -> RGB
     rgb_cv2_image = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
-
     # NumPy配列からPIL画像オブジェクトを生成
     pil_image = Image.fromarray(rgb_cv2_image)
-
     return pil_image
-
-
-def cv2_to_tk(cv2_image):
-    "CV2 -> Tkinter"
-
-    # BGR -> RGB
-    rgb_cv2_image = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
-
-    # NumPy配列からPIL画像オブジェクトを生成
-    pil_image = Image.fromarray(rgb_cv2_image)
-
-    # PIL画像オブジェクトをTkinter画像オブジェクトに変換
-    tk_image = ImageTk.PhotoImage(pil_image)
-
-    return tk_image
-
-
-def cv2_to_resize_tk(cv2_image, size=(300, 300)):
-    img = cv2_to_pil(cv2_image)
-    resized_img = img.resize(size=size)
-    tk_img = ImageTk.PhotoImage(resized_img)
-    return tk_img
 
 
 class ImageDataHolder:
@@ -310,9 +283,7 @@ class Previewer(ctk.CTk):
         self.filepath_frame = widgets.FilePathFrame(self, iFile=iFile)
         self.image_frame = widgets.ImageFrame(self)
         slider_params = [
-            widgets.SliderFrameParams(
-                "beam_thresh", 0, 255, 255, 0, self.beam_slider
-            ),
+            widgets.SliderFrameParams("beam_thresh", 0, 255, 255, 0, self.beam_slider),
             widgets.SliderFrameParams(
                 "ball_thresh", 0, 255, 255, 100, self.ball_slider
             ),
@@ -325,7 +296,8 @@ class Previewer(ctk.CTk):
         self.desc_label = ctk.CTkLabel(
             self.result_frame, text="beam center from ball center"
         ).pack()
-        self.display_label = ctk.CTkLabel(self.result_frame).pack()
+        self.display_label = ctk.CTkLabel(self.result_frame)
+        self.display_label.pack()
 
         # place widgets
         # row 0
@@ -348,7 +320,8 @@ class Previewer(ctk.CTk):
             self.image_frame.set_from_ImageNameSet(
                 self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
             )
-            print(self.idh.return_center_sub())
+            result = self.idh.return_center_sub()
+            self.update_result(result)
 
     def beam_slider(self, val):
         beam_thresh = val
@@ -357,7 +330,8 @@ class Previewer(ctk.CTk):
             self.image_frame.set_from_ImageNameSet(
                 self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
             )
-            self.idh.return_center_sub()
+            result = self.idh.return_center_sub()
+            self.update_result(result)
 
     def ball_slider(self, val):
         ball_thresh = val
@@ -366,10 +340,148 @@ class Previewer(ctk.CTk):
             self.image_frame.set_from_ImageNameSet(
                 self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
             )
-            self.idh.return_center_sub()
+            result = self.idh.return_center_sub()
+            self.update_result(result)
+
+    def update_result(self, result: tuple[float, float] | None):
+        if result is not None:
+            x = str(result[0])
+            y = str(result[1])
+            text = "x: " + x + ", " + "y: " + y
+            self.display_label.configure(text=text)
+        else:
+            self.display_label.configure(text="NaN")
+
+class BasicViewer(ctk.CTkFrame):
+    def __init__(self, iFile: str = "", **kwargs):
+        super().__init__(**kwargs)
+
+        self.idh = ImageDataHolder()
+        # 結果保持用
+        self.result = (None, None)
+
+        # widgets
+        # 取り出すフレーム
+        # # ファイルパスフレーム
+        # self.filepath_frame = widgets.FilePathFrame(self, iFile=iFile)
+        # # リードボタン
+        # self.read_img_button = ctk.CTkButton(
+        #     self, text="read image", command=self.button_callback
+        # )
+
+        # 残すフレーム
+        # メイン画像フレーム
+        self.image_frame = widgets.ImageFrame(self)
+
+        # スライダーフレーム
+        slider_params = [
+            widgets.SliderFrameParams("beam_thresh", 0, 255, 255, 0, self.beam_slider),
+            widgets.SliderFrameParams(
+                "ball_thresh", 0, 255, 255, 100, self.ball_slider
+            ),
+        ]
+        self.slider_frame = widgets.SliderFrame(self, "threshold", slider_params)
+
+        # 結果表示フレーム
+        self.result_frame = ctk.CTkFrame(self)
+        self.desc_label = ctk.CTkLabel(
+            self.result_frame, text="beam center from ball center"
+        ).pack()
+        self.display_label = ctk.CTkLabel(self.result_frame, text="result")
+        self.display_label.pack()
+
+
+        # place widgets
+        # roq0は取り出す
+        # # row 0
+        # self.filepath_frame.grid(row=0, column=0)
+        # self.read_img_button.grid(row=0, column=1, padx=10, pady=10, sticky="news")
+
+        # row 0
+        self.image_frame.grid(row=0, column=0, rowspan=2)
+        self.slider_frame.grid(row=0, column=1, padx=10, pady=10, sticky="n")
+
+        # row 1
+        self.result_frame.grid(row=1, column=1, sticky="news", padx=10, pady=10)
+
+    # # 画像リードボタンのコールバック
+    # def button_callback(self):
+    #     # 画像パスのセット
+    #     img_path = self.filepath_frame.get_path()
+    #     # 閾値の取得
+    #     beam_thresh = self.slider_frame.get_value("beam_thresh")
+    #     ball_thresh = self.slider_frame.get_value("ball_thresh")
+    #     # 画像のセット
+    #     self.idh.setup(img_path, beam_thresh, ball_thresh)
+    #     if self.idh.imread:
+    #         self.image_frame.set_from_ImageNameSet(
+    #             self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
+    #         )
+    #         result = self.idh.return_center_sub()
+    #         self.update_result(result)
+
+    # 画像登録メソッド
+    def register_image(self, img_path, beam_thresh = None, ball_thresh = None):
+        # 閾値が設定されていない場合は現在の閾値を使用
+        if beam_thresh is None or ball_thresh is None:
+            beam_thresh = self.slider_frame.get_value("beam_thresh")
+            ball_thresh = self.slider_frame.get_value("ball_thresh")
+
+        self.idh.setup(img_path, beam_thresh, ball_thresh)
+        if self.idh.imread:
+            self.image_frame.set_from_ImageNameSet(
+                self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
+            )
+            self.result = self.idh.return_center_sub()
+            self.update_result()
+
+    def beam_slider(self, val):
+        beam_thresh = val
+        if self.idh.imread:
+            self.idh.update_images(beam_thresh=beam_thresh)
+            self.image_frame.set_from_ImageNameSet(
+                self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
+            )
+            self.result = self.idh.return_center_sub()
+            self.update_result()
+
+    def ball_slider(self, val):
+        ball_thresh = val
+        if self.idh.imread:
+            self.idh.update_images(ball_thresh=ball_thresh)
+            self.image_frame.set_from_ImageNameSet(
+                self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
+            )
+            self.result = self.idh.return_center_sub()
+            self.update_result()
+
+    # 結果表示更新
+    def update_result(self):
+        if self.result[0] is None or self.result[1] is None:
+            self.display_label.configure(text="NaN")
+        else:
+            x = str(self.result[0])
+            y = str(self.result[1])
+            text = "x: " + x + ", " + "y: " + y
+            self.display_label.configure(text=text)
 
 
 if __name__ == "__main__":
     img = "tests/img/testset/01.bmp"
-    app = Previewer(img)
+    # app = Previewer(img)
+    app = ctk.CTk()
+    bv = BasicViewer(master=app)
+
+    def bt_co():
+        bv.register_image(img)
+
+    def bt_me():
+        messagebox.showinfo("result", bv.result)
+
+    bt = ctk.CTkButton(app, text="read test_img", command=bt_co)
+    bm = ctk.CTkButton(app, text="show resul", command=bt_me)
+    bv.pack()
+    bt.pack()
+    bm.pack()
+    app.title("WanaPreview")
     app.mainloop()
