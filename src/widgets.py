@@ -2,7 +2,9 @@ from dataclasses import field, dataclass
 import glob
 import os
 import sys
+import csv
 import tkinter as tk
+from tkinter import ttk
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
 
@@ -32,6 +34,9 @@ class Test(ctk.CTk):
 
         self.test_canvas = ImageFrame(self)
         self.test_canvas.grid(row=3, column=0)
+
+        self.test_table = ResultTable(master=self)
+        self.test_table.grid(row=3, column=1, sticky="NS")
 
         self.test_button = ctk.CTkButton(self, text="Test", command=self.canvas_work)
         self.test_button.grid(row=2, column=0, sticky="N")
@@ -231,6 +236,10 @@ class SliderFrame(ctk.CTkFrame):
         value = int(float(value))
         return value
 
+    def set_value(self, attr: str, val):
+        master = getattr(self, attr)
+        master.var.set(val)
+
 
 class FilePathFrame(ctk.CTkFrame):
     """
@@ -280,7 +289,12 @@ class FolderPathFrame(ctk.CTkFrame):
     def __init__(self, master, init_dir: str = "", **kwargs):
         super().__init__(master, **kwargs)
 
+        # デフォルトフォルダ
         self.iDirPath: str = init_dir
+
+        # callback登録用
+        self.pre_func = lambda: None
+        self.post_func = lambda: None
 
         self.label = ctk.CTkLabel(self, text="フォルダを選択")
         self.label.grid(row=0, column=0, padx=10)
@@ -295,12 +309,16 @@ class FolderPathFrame(ctk.CTkFrame):
         self.path_select.grid(row=1, column=1, padx=10, pady=10, sticky="w")
 
     def dirdialog_clicked(self):
+        self.pre_func()
+
         iDir = self.path_entry.get()
         if iDir == "":
             iDir = os.path.abspath(os.path.dirname(__file__))
         iDirPath = filedialog.askdirectory(initialdir=iDir)
         self.path_entry.delete(0, "end")
         self.path_entry.insert(0, iDirPath)
+
+        self.post_func()
 
     def get_path(self) -> str:
         iDirPath = self.path_entry.get()
@@ -316,6 +334,12 @@ class FolderPathFrame(ctk.CTkFrame):
             return []
         img_path_list = glob.glob(iDirPath + "/*." + filetype)
         return img_path_list
+
+    def add_pre_callback(self, func):
+        self.pre_func = func
+
+    def add_post_callback(self, func):
+        self.post_func = func
 
 
 class ImageFrame(ctk.CTkFrame):
@@ -406,6 +430,66 @@ class ImageFrame(ctk.CTkFrame):
             )
 
         self.image_name.configure(text=self.imgs[self.current_image].name)
+
+
+class ResultTable(ctk.CTkFrame):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        # self.post_func = lambda e: None
+        self.post_func = lambda e: print("a")
+        self.export_func = lambda: None
+
+        self.tb = ttk.Treeview(self, columns=("file", "x", "y"), selectmode="browse")
+
+        self.tb.column("#0", width=0, stretch="no")
+        self.tb.column("file", width=100)
+        self.tb.column("x", width=80)
+        self.tb.column("y", width=80)
+
+        self.tb.heading("file", text="file")
+        self.tb.heading("x", text="x")
+        self.tb.heading("y", text="y")
+
+        self.bt_frame = ctk.CTkFrame(self)
+        self.bt_i = ctk.CTkButton(self.bt_frame, text="export", command=self.export_callback)
+        self.bt_d = ctk.CTkButton(self.bt_frame, text="delete", command=self.delete_selection)
+
+        self.tb.pack(expand=True, fill=tk.BOTH, padx=5, pady=5)
+        self.bt_frame.pack(padx=5, pady=5)
+        self.bt_i.grid(row=0, column=0)
+        self.bt_d.grid(row=0, column=1)
+
+
+    def insert(self, name, x, y, iid=None):
+        self.tb.insert(parent="", iid=iid, index="end", values=(name, x, y))
+
+    def delete_selection(self):
+        iid = self.tb.selection()
+        if len(iid) != 0:
+            self.tb.delete(iid)
+
+    def delete_all(self):
+        self.tb.delete(*self.tb.get_children())
+
+    def export_callback(self):
+        items = self.tb.get_children()
+        data = []
+        for i in items:
+            val = self.tb.item(i)["values"]
+            data.append(val)
+        file = filedialog.asksaveasfilename()
+        with open(file + ".csv", "w") as f:
+            writer = csv.writer(f)
+            writer.writerows(data)
+
+    def add_post_select_item(self, func):
+        self.post_func = func
+        self.tb.bind("<<TreeviewSelect>>", self.post_func)
+
+    def update_params(self, iid, x, y):
+        self.tb.set(iid, column="x", value=x)
+        self.tb.set(iid, column="y", value=y)
 
 
 if __name__ == "__main__":

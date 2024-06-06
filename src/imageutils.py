@@ -311,6 +311,12 @@ class Previewer(ctk.CTk):
         # row 2
         self.result_frame.grid(row=2, column=1, sticky="news", padx=10, pady=10)
 
+    def set_beam_thresh(self, val):
+        self.slider_frame.set_value("beam_thresh", val)
+
+    def set_ball_thresh(self, val):
+        self.slider_frame.set_value("ball_thresh", val)
+
     def button_callback(self):
         img_path = self.filepath_frame.get_path()
         beam_thresh = self.slider_frame.get_value("beam_thresh")
@@ -359,17 +365,9 @@ class BasicViewer(ctk.CTkFrame):
         self.idh = ImageDataHolder()
         # 結果保持用
         self.result = (None, None)
+        # 更新後callback
+        self.postupdate_func = lambda: None
 
-        # widgets
-        # 取り出すフレーム
-        # # ファイルパスフレーム
-        # self.filepath_frame = widgets.FilePathFrame(self, iFile=iFile)
-        # # リードボタン
-        # self.read_img_button = ctk.CTkButton(
-        #     self, text="read image", command=self.button_callback
-        # )
-
-        # 残すフレーム
         # メイン画像フレーム
         self.image_frame = widgets.ImageFrame(self)
 
@@ -382,6 +380,8 @@ class BasicViewer(ctk.CTkFrame):
         ]
         self.slider_frame = widgets.SliderFrame(self, "threshold", slider_params)
 
+        # ボタン
+
         # 結果表示フレーム
         self.result_frame = ctk.CTkFrame(self)
         self.desc_label = ctk.CTkLabel(
@@ -390,35 +390,13 @@ class BasicViewer(ctk.CTkFrame):
         self.display_label = ctk.CTkLabel(self.result_frame, text="result")
         self.display_label.pack()
 
-
-        # place widgets
-        # roq0は取り出す
-        # # row 0
-        # self.filepath_frame.grid(row=0, column=0)
-        # self.read_img_button.grid(row=0, column=1, padx=10, pady=10, sticky="news")
-
         # row 0
-        self.image_frame.grid(row=0, column=0, rowspan=2)
+        self.image_frame.grid(row=0, column=0, rowspan=3)
         self.slider_frame.grid(row=0, column=1, padx=10, pady=10, sticky="n")
 
         # row 1
         self.result_frame.grid(row=1, column=1, sticky="news", padx=10, pady=10)
 
-    # # 画像リードボタンのコールバック
-    # def button_callback(self):
-    #     # 画像パスのセット
-    #     img_path = self.filepath_frame.get_path()
-    #     # 閾値の取得
-    #     beam_thresh = self.slider_frame.get_value("beam_thresh")
-    #     ball_thresh = self.slider_frame.get_value("ball_thresh")
-    #     # 画像のセット
-    #     self.idh.setup(img_path, beam_thresh, ball_thresh)
-    #     if self.idh.imread:
-    #         self.image_frame.set_from_ImageNameSet(
-    #             self.idh.return_resize_imgaeTk(), self.idh.return_name_list()
-    #         )
-    #         result = self.idh.return_center_sub()
-    #         self.update_result(result)
 
     # 画像登録メソッド
     def register_image(self, img_path, beam_thresh = None, ball_thresh = None):
@@ -444,6 +422,7 @@ class BasicViewer(ctk.CTkFrame):
             )
             self.result = self.idh.return_center_sub()
             self.update_result()
+            self.postupdate_func()
 
     def ball_slider(self, val):
         ball_thresh = val
@@ -454,6 +433,7 @@ class BasicViewer(ctk.CTkFrame):
             )
             self.result = self.idh.return_center_sub()
             self.update_result()
+            self.postupdate_func()
 
     # 結果表示更新
     def update_result(self):
@@ -465,9 +445,30 @@ class BasicViewer(ctk.CTkFrame):
             text = "x: " + x + ", " + "y: " + y
             self.display_label.configure(text=text)
 
+    # 結果更新後関数登録
+    def set_postupdate_func(self, func):
+        self.postupdate_func = func
+
+    # 現在のパラメータを返す
+    def return_params(self):
+        return (self.result[0],
+                self.result[1],
+                self.slider_frame.get_value("beam_thresh"),
+                self.slider_frame.get_value("ball_thresh"))
+
+    def set_beam_thresh(self, val):
+        self.slider_frame.set_value("beam_thresh", val)
+
+    def set_ball_thresh(self, val):
+        self.slider_frame.set_value("ball_thresh", val)
+
+    # buttonにtextとcommandを登録
+    def config_button(self, text, func):
+        self.button.configure(text=text)
+        self.button.configure(command=func)
 
 if __name__ == "__main__":
-    img = "tests/img/testset/01.bmp"
+    img = "tests/img/size/5.bmp"
     # app = Previewer(img)
     app = ctk.CTk()
     bv = BasicViewer(master=app)
