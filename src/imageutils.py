@@ -468,7 +468,7 @@ class BasicViewer(ctk.CTkFrame):
         self.button.configure(command=func)
 
 if __name__ == "__main__":
-    img = "tests/img/size/5.bmp"
+    img = "sample/size/5.bmp"
     # app = Previewer(img)
     app = ctk.CTk()
     bv = BasicViewer(master=app)

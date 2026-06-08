@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 logger = logging.getLogger("WanaLyzer")
 logger.setLevel(logging.DEBUG)
@@ -10,7 +11,8 @@ st_handler.setLevel(logging.DEBUG)
 # StreamHandlerによる出力フォーマットを先で定義した'format'に設定
 st_handler.setFormatter(logging.Formatter(format))
 
-fl_handler = logging.FileHandler(filename="sample9.log", encoding="utf-8")
+Path("log").mkdir(exist_ok=True)
+fl_handler = logging.FileHandler(filename="log/WanaLyzer.log", encoding="utf-8")
 fl_handler.setLevel(logging.WARNING)
 # FileHandlerによる出力フォーマットを先で定義した'format'に設定
 fl_handler.setFormatter(logging.Formatter(format))
@@ -20,5 +22,4 @@ logger.addHandler(fl_handler)
 
 # logger.info("I am info log.")
 # logger.warning("I am warning log.")
-
 
