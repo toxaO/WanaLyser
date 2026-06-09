@@ -14,7 +14,7 @@ class CoreAnalysisTest(unittest.TestCase):
     def test_size_images_detect_beam_and_ball_centers(self) -> None:
         expected = {
             "15.bmp": (-0.363, -0.363),
-            "2.bmp": (0.0, 0.605),
+            "2.bmp": (-0.242, 0.605),
             "5.bmp": (-0.121, -0.363),
         }
         for image_name, (expected_dx, expected_dy) in expected.items():

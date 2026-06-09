@@ -7,6 +7,8 @@ out/*
 WanaLyzer/out/*
 log/*
 !log/.gitkeep
+data/*
+!data/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

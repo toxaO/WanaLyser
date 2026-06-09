@@ -1,20 +1,7 @@
-import os
-import sys
-import widgets
-import customtkinter
+from __future__ import annotations
 
-
-class App(customtkinter.CTk):
-    def __init__(self):
-        super().__init__()
-        self.geometry("600x500")
-        self.title("WanaLyzer3.0")
-
-        self.path_frame = widgets.FolderPathFrame(self)
-        self.path_frame.grid(row=0, column=0)
+from gui import run
 
 
 if __name__ == "__main__":
-    app = App()
-    app.mainloop()
-
+    raise SystemExit(run())

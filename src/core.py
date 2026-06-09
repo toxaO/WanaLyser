@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import json
 import math
-import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
@@ -16,6 +15,7 @@ from PIL import Image
 DEFAULT_PIXEL_SIZE_MM = 0.242
 DEFAULT_BEAM_THRESHOLD = 0
 DEFAULT_BALL_SENSITIVITY = 10
+ALGORITHM_VERSION = "core-bright-blob-v1"
 SUPPORTED_IMAGE_EXTENSIONS = {".bmp", ".png", ".tif", ".tiff"}
 
 
@@ -55,6 +55,8 @@ class AnalysisParameters:
     beam_threshold: int = DEFAULT_BEAM_THRESHOLD
     ball_sensitivity: int = DEFAULT_BALL_SENSITIVITY
     pixel_size_mm: float = DEFAULT_PIXEL_SIZE_MM
+    beam_size_px: int | None = None
+    target_size_px: int | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,9 @@ class AnalysisResult:
             "beam_threshold": self.parameters.beam_threshold,
             "ball_sensitivity": self.parameters.ball_sensitivity,
             "pixel_size_mm": self.parameters.pixel_size_mm,
+            "beam_size_px": self.parameters.beam_size_px,
+            "target_size_px": self.parameters.target_size_px,
+            "algorithm_version": ALGORITHM_VERSION,
         }
 
 
@@ -147,8 +152,8 @@ def analyze_image(
 
     beam_binary = make_beam_binary(gray, params.beam_threshold)
 
-    beam = detect_rect(beam_binary)
-    ball, ball_edges = detect_ball(gray, beam, params.ball_sensitivity)
+    beam = detect_rect(beam_binary, params.beam_size_px)
+    ball, ball_edges = detect_ball(gray, beam, params.ball_sensitivity, params.target_size_px)
     result = build_result(path, beam, ball, params)
     debug_images = build_debug_images(raw, gray, beam_binary, ball_edges, beam, ball)
     return Analysis(result=result, debug_images=debug_images)
@@ -177,8 +182,8 @@ def make_beam_binary(gray: np.ndarray, threshold: int) -> np.ndarray:
     return binary
 
 
-def detect_rect(binary: np.ndarray) -> Rect | None:
-    contour = find_largest_contour(binary)
+def detect_rect(binary: np.ndarray, expected_size_px: int | None = None) -> Rect | None:
+    contour = find_best_rect_contour(binary, expected_size_px)
     if contour is None:
         return None
     x, y, width, height = cv2.boundingRect(contour)
@@ -189,9 +194,18 @@ def detect_ball(
     gray: np.ndarray,
     beam: Rect | None,
     sensitivity: int,
+    target_size_px: int | None = None,
 ) -> tuple[Circle | None, np.ndarray]:
+    if beam is not None:
+        blob_circle, blob_binary = detect_bright_blob_ball(gray, beam, target_size_px=target_size_px)
+        if blob_circle is not None:
+            return blob_circle, blob_binary
+
     blurred = cv2.medianBlur(gray, 5)
     edges = cv2.Canny(blurred, 50, 150)
+    target_radius = None if target_size_px is None else max(1, int(round(target_size_px / 2)))
+    min_radius = 3 if target_radius is None else max(1, int(round(target_radius * 0.5)))
+    max_radius = 30 if target_radius is None else max(min_radius + 1, int(round(target_radius * 1.8)))
     circles = cv2.HoughCircles(
         blurred,
         cv2.HOUGH_GRADIENT,
@@ -199,8 +213,8 @@ def detect_ball(
         minDist=20,
         param1=50,
         param2=max(1, sensitivity),
-        minRadius=3,
-        maxRadius=30,
+        minRadius=min_radius,
+        maxRadius=max_radius,
     )
     if circles is None:
         return None, edges
@@ -223,6 +237,89 @@ def detect_ball(
     return candidates[0], edges
 
 
+def detect_bright_blob_ball(
+    gray: np.ndarray,
+    beam: Rect,
+    margin: int = 10,
+    target_size_px: int | None = None,
+) -> tuple[Circle | None, np.ndarray]:
+    crop = gray[beam.y : beam.y + beam.height, beam.x : beam.x + beam.width]
+    if crop.size == 0:
+        return None, np.zeros_like(gray)
+
+    inner_margin = min(margin, max(0, min(crop.shape[:2]) // 4))
+    inner = crop[
+        inner_margin : crop.shape[0] - inner_margin,
+        inner_margin : crop.shape[1] - inner_margin,
+    ]
+    if inner.size == 0:
+        inner = crop
+        inner_margin = 0
+
+    thresholds = candidate_blob_thresholds(inner)
+    candidates = []
+    best_binary = np.zeros_like(gray)
+    expected_diameter = target_size_px or 18
+    expected_radius = max(1, expected_diameter / 2)
+    min_diameter = max(3, int(round(expected_diameter * 0.45)))
+    max_diameter = max(min_diameter + 1, int(round(expected_diameter * 1.8)))
+    expected_area = math.pi * expected_radius * expected_radius
+    min_area = max(10, expected_area * 0.25)
+    max_area = max(min_area + 1, expected_area * 3.0)
+    for threshold in thresholds:
+        _, binary_inner = cv2.threshold(inner, threshold, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(binary_inner, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if not min_area <= area <= max_area:
+                continue
+            x, y, width, height = cv2.boundingRect(contour)
+            if width < min_diameter or height < min_diameter:
+                continue
+            if width > max_diameter or height > max_diameter:
+                continue
+            aspect = width / height
+            if not 0.6 <= aspect <= 1.6:
+                continue
+
+            (circle_x, circle_y), radius = cv2.minEnclosingCircle(contour)
+            global_x = beam.x + inner_margin + circle_x
+            global_y = beam.y + inner_margin + circle_y
+            distance = math.hypot(global_x - beam.center[0], global_y - beam.center[1])
+            radius_penalty = abs(radius - expected_radius)
+            area_penalty = abs(area - expected_area) / max(1.0, expected_area / 4)
+            score = distance + radius_penalty + area_penalty
+            candidates.append((score, Circle(int(round(global_x)), int(round(global_y)), int(round(radius))), binary_inner))
+
+    if not candidates:
+        return None, best_binary
+
+    _, circle, binary_inner = min(candidates, key=lambda item: item[0])
+    debug_binary = np.zeros_like(gray)
+    debug_binary[
+        beam.y + inner_margin : beam.y + inner_margin + binary_inner.shape[0],
+        beam.x + inner_margin : beam.x + inner_margin + binary_inner.shape[1],
+    ] = binary_inner
+    return circle, debug_binary
+
+
+def candidate_blob_thresholds(image: np.ndarray) -> list[int]:
+    otsu_threshold, _ = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    mean = float(image.mean())
+    std = float(image.std())
+    values = [
+        int(round(otsu_threshold)),
+        int(round(mean + 0.5 * std)),
+        int(round(mean + 0.8 * std)),
+        int(round(mean + 1.0 * std)),
+        110,
+        115,
+        120,
+        125,
+    ]
+    return sorted({max(1, min(254, value)) for value in values})
+
+
 def is_circle_inside_rect(circle: Circle, rect: Rect) -> bool:
     return (
         rect.x <= circle.x <= rect.x + rect.width
@@ -230,10 +327,22 @@ def is_circle_inside_rect(circle: Circle, rect: Rect) -> bool:
     )
 
 
-def find_largest_contour(binary: np.ndarray) -> np.ndarray | None:
+def find_best_rect_contour(binary: np.ndarray, expected_size_px: int | None = None) -> np.ndarray | None:
     contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return None
+    if expected_size_px is not None and expected_size_px > 0:
+        def size_score(contour) -> float:
+            x, y, width, height = cv2.boundingRect(contour)
+            area = cv2.contourArea(contour)
+            expected_area = expected_size_px * expected_size_px
+            return (
+                abs(width - expected_size_px)
+                + abs(height - expected_size_px)
+                + abs(area - expected_area) / max(1, expected_size_px)
+            )
+
+        return min(contours, key=size_score)
     return max(contours, key=cv2.contourArea)
 
 
@@ -390,8 +499,11 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         "distance_mm",
         "angle_degrees",
         "beam_threshold",
-            "ball_sensitivity",
+        "ball_sensitivity",
         "pixel_size_mm",
+        "beam_size_px",
+        "target_size_px",
+        "algorithm_version",
     ]
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
