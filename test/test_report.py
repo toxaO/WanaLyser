@@ -29,8 +29,8 @@ class ReportTest(unittest.TestCase):
             analyze_image(ROOT / "sample" / "size" / "5.bmp"),
         ]
         metadata = [
-            AnalysisMetadata(gantry_angle=0.0, collimator_angle=0.0, couch_angle=0.0, note="condition_a"),
-            AnalysisMetadata(gantry_angle=90.0, collimator_angle=0.0, couch_angle=0.0, note="condition_b"),
+            AnalysisMetadata(gantry_angle=0.0, collimator_angle=0.0, couch_angle=0.0, note="setup_a"),
+            AnalysisMetadata(gantry_angle=90.0, collimator_angle=0.0, couch_angle=0.0, note="setup_b"),
         ]
 
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -56,7 +56,7 @@ class DatabaseTest(unittest.TestCase):
                 self.assertEqual(row["gantry_angle"], 0.0)
                 self.assertEqual(row["collimator_angle"], 90.0)
                 self.assertEqual(row["couch_angle"], 270.0)
-                self.assertAlmostEqual(row["dx_mm"], -0.242, places=3)
+                self.assertAlmostEqual(row["dx_mm"], 0.242, places=3)
                 self.assertAlmostEqual(row["dy_mm"], 0.605, places=3)
                 self.assertEqual(row["algorithm_version"], ALGORITHM_VERSION)
                 self.assertEqual(row["succeeded"], 1)
@@ -103,10 +103,10 @@ class DatabaseTest(unittest.TestCase):
 
             machines = list_machines(connection)
             machine_names = [machine["name"] for machine in machines]
-            self.assertIn("1", machine_names)
-            self.assertIn("2", machine_names)
+            self.assertIn("machine1", machine_names)
+            self.assertIn("machine2", machine_names)
             self.assertIn("linac-a", machine_names)
-            self.assertEqual(get_default_machine_name(connection), "1")
+            self.assertEqual(get_default_machine_name(connection), "machine1")
 
             set_default_machine_name(connection, "linac-a")
             self.assertEqual(get_default_machine_name(connection), "linac-a")

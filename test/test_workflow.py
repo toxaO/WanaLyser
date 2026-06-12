@@ -25,15 +25,15 @@ class WorkflowTest(unittest.TestCase):
             )
             self.assertEqual(len(plan), 14)
             self.assertEqual(plan[0].image_name, "01.bmp")
-            self.assertEqual(plan[0].condition_label, "gantry_180_1")
-            self.assertEqual(plan[0].gantry_angle, 180.1)
+            self.assertEqual(plan[0].setup_label, "gantry_180(-)")
+            self.assertEqual(plan[0].gantry_angle, 180.0)
             self.assertEqual(plan[-1].image_name, "14.bmp")
-            self.assertEqual(plan[-1].condition_label, "couch_270")
+            self.assertEqual(plan[-1].setup_label, "couch_270")
             self.assertEqual(plan[-1].couch_angle, 270.0)
 
             lines = format_plan(plan)
             self.assertIn("01.bmp", lines[0])
-            self.assertIn("gantry_180_1", lines[0])
+            self.assertIn("gantry_180(-)", lines[0])
         finally:
             connection.close()
 

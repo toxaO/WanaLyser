@@ -14,8 +14,8 @@ from database import (
     connect_database,
     create_session,
     init_db,
-    list_condition_presets,
-    list_condition_steps,
+    list_setup_presets,
+    list_setup_steps,
     list_analysis_results,
     list_machines,
     metadata_for_preset,
@@ -34,7 +34,7 @@ def main() -> int:
         connection = connect_database(args.db)
         try:
             init_db(connection)
-            print_condition_presets(connection)
+            print_setup_presets(connection)
         finally:
             connection.close()
         return 0
@@ -142,14 +142,14 @@ def print_plan(plan) -> None:
         print(line)
 
 
-def print_condition_presets(connection) -> None:
-    for preset in list_condition_presets(connection):
+def print_setup_presets(connection) -> None:
+    for preset in list_setup_presets(connection):
         builtin = " builtin" if preset["is_builtin"] else ""
         print(
             f'{preset["name"]}: {preset["description"]} '
             f'({preset["step_count"]} steps{builtin})'
         )
-        for step in list_condition_steps(connection, int(preset["id"])):
+        for step in list_setup_steps(connection, int(preset["id"])):
             print(
                 f'  {step["step_order"]:02d}. {step["label"]} '
                 f'G={step["gantry_angle"]} '
@@ -259,7 +259,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--list-presets",
         action="store_true",
-        help="list database condition presets and exit",
+        help="list database setup presets and exit",
     )
     parser.add_argument(
         "--list-machines",
@@ -268,12 +268,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--preset",
-        help="analysis condition preset name. Example: daily-14",
+        help="analysis setup preset name. Example: daily-14",
     )
     parser.add_argument(
         "--preview-plan",
         action="store_true",
-        help="show image-to-condition mapping and exit. Requires --preset",
+        help="show image-to-setup mapping and exit. Requires --preset",
     )
     parser.add_argument(
         "--limit",

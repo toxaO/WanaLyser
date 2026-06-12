@@ -357,7 +357,7 @@ def build_result(
     distance_mm = None
     angle_degrees = None
     if beam is not None and ball is not None:
-        dx_mm = (beam.center[0] - ball.center[0]) * parameters.pixel_size_mm
+        dx_mm = (ball.center[0] - beam.center[0]) * parameters.pixel_size_mm
         dy_mm = (beam.center[1] - ball.center[1]) * parameters.pixel_size_mm
         distance_mm = math.hypot(dx_mm, dy_mm)
         angle_degrees = math.degrees(math.atan2(dy_mm, dx_mm))
@@ -410,15 +410,81 @@ def draw_analysis(
     ball: Circle | None,
 ) -> None:
     if beam is not None:
-        cv2.rectangle(image, beam.top_left, beam.bottom_right, (0, 255, 0), 2)
-        center_x, center_y = int(beam.center[0]), int(beam.center[1])
-        cv2.line(image, (center_x, beam.y), (center_x, beam.y + beam.height), (0, 255, 0), 1)
-        cv2.line(image, (beam.x, center_y), (beam.x + beam.width, center_y), (0, 255, 0), 1)
+        draw_dashed_rect(image, beam.top_left, beam.bottom_right, (0, 255, 0), thickness=1)
+        cv2.line(image, beam.top_left, beam.bottom_right, (0, 255, 0), 1)
+        cv2.line(image, (beam.x + beam.width, beam.y), (beam.x, beam.y + beam.height), (0, 255, 0), 1)
 
     if ball is not None:
-        cv2.circle(image, ball.center, ball.radius, (0, 0, 255), 2)
+        draw_dashed_circle(image, ball.center, ball.radius, (0, 0, 255), thickness=1, gap_degrees=18)
         cv2.line(image, (ball.x - ball.radius, ball.y), (ball.x + ball.radius, ball.y), (0, 0, 255), 1)
         cv2.line(image, (ball.x, ball.y - ball.radius), (ball.x, ball.y + ball.radius), (0, 0, 255), 1)
+
+
+def draw_dashed_rect(
+    image: np.ndarray,
+    top_left: tuple[int, int],
+    bottom_right: tuple[int, int],
+    color: tuple[int, int, int],
+    thickness: int = 1,
+    dash: int = 8,
+    gap: int = 6,
+) -> None:
+    x1, y1 = top_left
+    x2, y2 = bottom_right
+    draw_dashed_line(image, (x1, y1), (x2, y1), color, thickness, dash, gap)
+    draw_dashed_line(image, (x2, y1), (x2, y2), color, thickness, dash, gap)
+    draw_dashed_line(image, (x2, y2), (x1, y2), color, thickness, dash, gap)
+    draw_dashed_line(image, (x1, y2), (x1, y1), color, thickness, dash, gap)
+
+
+def draw_dashed_line(
+    image: np.ndarray,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    color: tuple[int, int, int],
+    thickness: int,
+    dash: int,
+    gap: int,
+) -> None:
+    x1, y1 = start
+    x2, y2 = end
+    length = math.hypot(x2 - x1, y2 - y1)
+    if length == 0:
+        return
+    step = dash + gap
+    for offset in range(0, int(length), step):
+        segment_end = min(offset + dash, length)
+        sx = int(round(x1 + (x2 - x1) * offset / length))
+        sy = int(round(y1 + (y2 - y1) * offset / length))
+        ex = int(round(x1 + (x2 - x1) * segment_end / length))
+        ey = int(round(y1 + (y2 - y1) * segment_end / length))
+        cv2.line(image, (sx, sy), (ex, ey), color, thickness)
+
+
+def draw_dashed_circle(
+    image: np.ndarray,
+    center: tuple[int, int],
+    radius: int,
+    color: tuple[int, int, int],
+    thickness: int = 1,
+    dash_degrees: int = 10,
+    gap_degrees: int = 8,
+) -> None:
+    if radius <= 0:
+        return
+    cx, cy = center
+    step = dash_degrees + gap_degrees
+    for start_angle in range(0, 360, step):
+        end_angle = min(start_angle + dash_degrees, 360)
+        points: list[tuple[int, int]] = []
+        for angle in range(start_angle, end_angle + 1, 2):
+            radians = math.radians(angle)
+            points.append((
+                int(round(cx + radius * math.cos(radians))),
+                int(round(cy + radius * math.sin(radians))),
+            ))
+        for start, end in zip(points, points[1:]):
+            cv2.line(image, start, end, color, thickness)
 
 
 def crop_focus(
