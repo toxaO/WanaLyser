@@ -153,38 +153,10 @@ def init_db(connection: sqlite3.Connection) -> None:
             ON sessions(machine_id);
         """
     )
-    ensure_column(connection, "sessions", "machine_id", "INTEGER")
-    ensure_column(connection, "analysis_results", "beam_size_px", "INTEGER")
-    ensure_column(connection, "analysis_results", "target_size_px", "INTEGER")
-    ensure_column(connection, "analysis_results", "x_axis_label", "TEXT")
-    ensure_column(connection, "analysis_results", "y_axis_label", "TEXT")
-    ensure_column(connection, "analysis_results", "dx_positive_label", "TEXT")
-    ensure_column(connection, "analysis_results", "dx_negative_label", "TEXT")
-    ensure_column(connection, "analysis_results", "dy_positive_label", "TEXT")
-    ensure_column(connection, "analysis_results", "dy_negative_label", "TEXT")
-    ensure_column(connection, "analysis_results", "x_inverted", "INTEGER NOT NULL DEFAULT 0")
-    ensure_column(connection, "setups", "dx_positive_label", "TEXT NOT NULL DEFAULT '+dx'")
-    ensure_column(connection, "setups", "dx_negative_label", "TEXT NOT NULL DEFAULT '-dx'")
-    ensure_column(connection, "setups", "dy_positive_label", "TEXT NOT NULL DEFAULT '+dy'")
-    ensure_column(connection, "setups", "dy_negative_label", "TEXT NOT NULL DEFAULT '-dy'")
     seed_builtin_setups(connection)
     seed_builtin_presets(connection)
     seed_default_machines(connection)
     connection.commit()
-
-
-def ensure_column(
-    connection: sqlite3.Connection,
-    table_name: str,
-    column_name: str,
-    column_definition: str,
-) -> None:
-    columns = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
-    existing = {column[1] for column in columns}
-    if column_name not in existing:
-        connection.execute(
-            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
-        )
 
 
 def seed_builtin_presets(connection: sqlite3.Connection) -> None:
