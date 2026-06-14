@@ -19,7 +19,7 @@ class WorkflowTest(unittest.TestCase):
         try:
             init_db(connection)
             plan = build_analysis_plan_from_preset(
-                ROOT / "sample" / "set",
+                ROOT / "sample" / "set_01",
                 connection,
                 "daily-14",
             )

@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -34,6 +34,7 @@ from gui_helpers import (
     load_app_setting,
     optional_spin_value,
     pixmap_from_bgr,
+    RoundedComboBox,
     show_error,
     status_text,
     update_setup_preset_by_id,
@@ -52,57 +53,57 @@ class PagePreviewDialog(QDialog):
         save_result_handler: Callable[[], bool] | None = None,
         export_pdf_handler: Callable[[], bool] | None = None,
         show_save_result_button: bool = True,
+        review_count: int | None = None,
+        count_changed_handler: Callable[[int], tuple[list[QPixmap], list[str]]] | None = None,
     ) -> None:
         super().__init__(parent)
         self.pages = pages
-        self.page_widgets: list[QLabel] = []
+        self.outline_titles = outline_titles or []
         self.save_result_handler = save_result_handler
         self.export_pdf_handler = export_pdf_handler
+        self.count_changed_handler = count_changed_handler
+        self.updating_count = False
 
         self.setWindowTitle(title)
         self.resize(900, 760)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        if review_count is not None:
+            count_row = QHBoxLayout()
+            count_row.addStretch()
+            self.review_count_spin = QSpinBox()
+            self.review_count_spin.setRange(1, 50)
+            self.review_count_spin.setValue(review_count)
+            self.review_count_spin.valueChanged.connect(self.review_count_changed)
+            count_row.addWidget(compact_field("Count", self.review_count_spin))
+            layout.addLayout(count_row)
+        else:
+            self.review_count_spin = None
+
         preview_layout = QHBoxLayout()
 
         self.outline_list = QListWidget()
         self.outline_list.setFixedWidth(190)
-        self.outline_list.currentRowChanged.connect(self.scroll_to_page)
+        self.outline_list.currentRowChanged.connect(self.show_page)
         preview_layout.addWidget(self.outline_list)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.viewport().installEventFilter(self)
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(12, 12, 12, 12)
-        content_layout.setSpacing(18)
+        content_layout.setSpacing(8)
+        self.page_count_label = QLabel()
+        self.page_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.page_label = QLabel()
+        self.page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        content_layout.addWidget(self.page_count_label)
+        content_layout.addWidget(self.page_label, stretch=1)
 
-        if not pages:
-            empty_label = QLabel("プレビューページがありません")
-            empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            content_layout.addWidget(empty_label)
-        else:
-            for index, page in enumerate(pages, start=1):
-                outline = outline_titles[index - 1] if outline_titles and index - 1 < len(outline_titles) else ""
-                outline_text = f"{index}. {outline}" if outline else f"Page {index}"
-                self.outline_list.addItem(outline_text)
-
-                page_count = QLabel(f"Page {index} / {len(pages)}  {outline}")
-                page_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                content_layout.addWidget(page_count)
-
-                page_label = QLabel()
-                page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.page_widgets.append(page_label)
-
-                row = QHBoxLayout()
-                row.addStretch()
-                row.addWidget(page_label)
-                row.addStretch()
-                content_layout.addLayout(row)
-
-        content_layout.addStretch()
         self.scroll_area.setWidget(content)
         preview_layout.addWidget(self.scroll_area, stretch=1)
         layout.addLayout(preview_layout, stretch=1)
@@ -129,15 +130,35 @@ class PagePreviewDialog(QDialog):
         button_row.addWidget(self.export_pdf_button)
         button_row.addWidget(cancel_button)
         layout.addLayout(button_row)
-        if pages:
+        self.rebuild_outline()
+        if self.pages:
             self.outline_list.setCurrentRow(0)
-            QTimer.singleShot(0, self.update_page_sizes)
+            QTimer.singleShot(0, lambda: self.show_page(0))
+        else:
+            self.show_page(-1)
         self.update_page_buttons()
 
-    def scroll_to_page(self, row: int) -> None:
-        if row < 0 or row >= len(self.page_widgets):
+    def rebuild_outline(self) -> None:
+        current_row = self.outline_list.currentRow()
+        self.outline_list.blockSignals(True)
+        self.outline_list.clear()
+        for index, _page in enumerate(self.pages, start=1):
+            outline = self.outline_titles[index - 1] if index - 1 < len(self.outline_titles) else ""
+            outline_text = f"{index}. {outline}" if outline else f"Page {index}"
+            self.outline_list.addItem(outline_text)
+        self.outline_list.blockSignals(False)
+        if self.pages:
+            self.outline_list.setCurrentRow(max(0, min(current_row, len(self.pages) - 1)))
+
+    def show_page(self, row: int) -> None:
+        if row < 0 or row >= len(self.pages):
+            self.page_count_label.setText("プレビューページがありません")
+            self.page_label.clear()
+            self.update_page_buttons()
             return
-        self.scroll_area.ensureWidgetVisible(self.page_widgets[row], 0, 12)
+        outline = self.outline_titles[row] if row < len(self.outline_titles) else ""
+        self.page_count_label.setText(f"Page {row + 1} / {len(self.pages)}  {outline}")
+        self.update_page_sizes()
         self.update_page_buttons()
 
     def previous_page(self) -> None:
@@ -147,14 +168,41 @@ class PagePreviewDialog(QDialog):
 
     def next_page(self) -> None:
         row = self.outline_list.currentRow()
-        if row < len(self.page_widgets) - 1:
+        if row < len(self.pages) - 1:
             self.outline_list.setCurrentRow(row + 1)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.scroll_area.viewport() and event.type() == QEvent.Type.Wheel:
+            if self.turn_page_at_scroll_edge(event):
+                return True
+        return super().eventFilter(watched, event)
+
+    def turn_page_at_scroll_edge(self, event) -> bool:
+        if not self.pages:
+            return False
+        delta_y = event.angleDelta().y() or event.pixelDelta().y()
+        if delta_y == 0:
+            return False
+
+        scroll_bar = self.scroll_area.verticalScrollBar()
+        row = self.outline_list.currentRow()
+        at_top = scroll_bar.value() <= scroll_bar.minimum()
+        at_bottom = scroll_bar.value() >= scroll_bar.maximum()
+        if delta_y > 0 and at_top and row > 0:
+            self.outline_list.setCurrentRow(row - 1)
+            QTimer.singleShot(0, lambda: scroll_bar.setValue(scroll_bar.maximum()))
+            return True
+        if delta_y < 0 and at_bottom and row < len(self.pages) - 1:
+            self.outline_list.setCurrentRow(row + 1)
+            QTimer.singleShot(0, lambda: scroll_bar.setValue(scroll_bar.minimum()))
+            return True
+        return False
 
     def update_page_buttons(self) -> None:
         row = self.outline_list.currentRow()
-        has_pages = bool(self.page_widgets)
+        has_pages = bool(self.pages)
         self.previous_page_button.setEnabled(has_pages and row > 0)
-        self.next_page_button.setEnabled(has_pages and row < len(self.page_widgets) - 1)
+        self.next_page_button.setEnabled(has_pages and row < len(self.pages) - 1)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -164,16 +212,32 @@ class PagePreviewDialog(QDialog):
         if not self.pages:
             return
         available_width = max(120, self.scroll_area.viewport().width() - 32)
-        for page, label in zip(self.pages, self.page_widgets):
-            if page.width() > available_width:
-                scaled = page.scaledToWidth(
-                    available_width,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            else:
-                scaled = page
-            label.setPixmap(scaled)
-            label.setFixedSize(scaled.size())
+        row = self.outline_list.currentRow()
+        if row < 0 or row >= len(self.pages):
+            return
+        page = self.pages[row]
+        if page.width() > available_width:
+            scaled = page.scaledToWidth(
+                available_width,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        else:
+            scaled = page
+        self.page_label.setPixmap(scaled)
+        self.page_label.setFixedSize(scaled.size())
+
+    def review_count_changed(self, value: int) -> None:
+        if self.count_changed_handler is None or self.updating_count:
+            return
+        try:
+            pages, outline_titles = self.count_changed_handler(value)
+        except Exception as exc:
+            show_error(self, "プレビューエラー", exc)
+            return
+        self.pages = pages
+        self.outline_titles = outline_titles
+        self.rebuild_outline()
+        self.show_page(self.outline_list.currentRow())
 
     def save_result(self) -> None:
         if self.save_result_handler is None:
@@ -346,15 +410,20 @@ class ParamTestDialog(QDialog):
         self.reanalyze_timer.timeout.connect(self.reanalyze)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
-        image_row = QHBoxLayout()
+        image_group = QGroupBox("Image Select")
+        image_row = QHBoxLayout(image_group)
+        image_row.setContentsMargins(8, 6, 8, 6)
+        image_row.setSpacing(6)
         self.image_path = QLineEdit()
         self.image_path.setPlaceholderText("解析対象画像を選択してください")
         browse_button = QPushButton("Browse")
         browse_button.clicked.connect(self.browse_image)
         image_row.addWidget(compact_field("Image", self.image_path), stretch=1)
         image_row.addWidget(browse_button)
-        layout.addLayout(image_row)
+        layout.addWidget(image_group)
 
         controls = QGroupBox("Parameters")
         controls_layout = QGridLayout(controls)
@@ -395,25 +464,38 @@ class ParamTestDialog(QDialog):
         controls_layout.addWidget(compact_field("Pixel", self.pixel_size), 0, 2)
         controls_layout.addWidget(compact_field("Beam th", self.beam_threshold), 1, 0)
         controls_layout.addWidget(compact_field("Ball sens", self.ball_sensitivity), 1, 1)
-        analyze_button = QPushButton("Analyze")
+        analyze_button = QPushButton("Analyse")
         analyze_button.clicked.connect(self.reanalyze)
         controls_layout.addWidget(analyze_button, 1, 2)
         layout.addWidget(controls)
 
-        self.status_label = QLabel("画像を選択して Analyze を押してください")
-        layout.addWidget(self.status_label)
+        preview_group = QGroupBox("Preview")
+        preview_layout = QVBoxLayout(preview_group)
+        preview_layout.setContentsMargins(8, 6, 8, 8)
+        preview_layout.setSpacing(6)
+        self.status_label = QLabel("画像を選択して Analyse を押してください")
+        self.status_label.setObjectName("PlainLabel")
+        preview_layout.addWidget(self.status_label)
         self.preview = QLabel()
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumSize(420, 360)
         self.preview.setStyleSheet("background: #111; color: #ddd;")
-        layout.addWidget(self.preview, stretch=1)
+        preview_layout.addWidget(self.preview, stretch=1)
+        layout.addWidget(preview_group, stretch=1)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Close)
-        buttons.button(QDialogButtonBox.StandardButton.Apply).setText("Apply")
-        buttons.button(QDialogButtonBox.StandardButton.Close).setText("Close")
-        buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self.accept)
-        buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.reject)
-        layout.addWidget(buttons)
+        button_group = QFrame()
+        button_group.setObjectName("DialogButtonPanel")
+        button_row = QHBoxLayout(button_group)
+        button_row.setContentsMargins(8, 6, 8, 6)
+        button_row.setSpacing(6)
+        button_row.addStretch()
+        apply_button = QPushButton("Apply")
+        apply_button.clicked.connect(self.accept)
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.reject)
+        button_row.addWidget(apply_button)
+        button_row.addWidget(close_button)
+        layout.addWidget(button_group)
 
     def parameters(self) -> AnalysisParameters:
         return AnalysisParameters(
@@ -533,7 +615,7 @@ class ManualTuningDialog(QDialog):
         controls_layout.addWidget(compact_field("Target px", self.target_size), 0, 2)
         controls_layout.addWidget(compact_field("Beam threshold", self.beam_threshold), 1, 0)
         controls_layout.addWidget(compact_field("Ball sensitivity", self.ball_sensitivity), 1, 1)
-        reanalyze_button = QPushButton("Reanalyze")
+        reanalyze_button = QPushButton("Reanalyse")
         reanalyze_button.clicked.connect(self.reanalyze)
         controls_layout.addWidget(reanalyze_button, 1, 2)
         layout.addWidget(controls)
@@ -551,7 +633,7 @@ class ManualTuningDialog(QDialog):
         layout.addLayout(image_row)
 
         view_row = QHBoxLayout()
-        self.view_select = QComboBox()
+        self.view_select = RoundedComboBox()
         self.view_select.addItems(["focused_overlay", "overlay", "beam_binary_overlay", "ball_edges_overlay", "raw"])
         self.view_select.currentTextChanged.connect(self.update_preview)
         self.status_label = QLabel()
@@ -641,5 +723,3 @@ class ManualTuningDialog(QDialog):
                 Qt.TransformationMode.SmoothTransformation,
             )
         )
-
-

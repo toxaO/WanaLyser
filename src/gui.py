@@ -76,6 +76,9 @@ from report import (
 )
 from workflow import AnalysisPlanItem, analyze_plan, build_analysis_plan_from_preset
 from gui_config import (
+    ANALYSE_DAILY_STYLE,
+    ANALYSE_TEST_STYLE,
+    APP_STYLE,
     DEFAULT_DB_PATH,
     DEFAULT_DEBUG_OUTPUT,
     DEFAULT_OK_THRESHOLD_MM,
@@ -85,8 +88,10 @@ from gui_config import (
     MODE_WIDGET_SIZE,
     OK_THRESHOLD_SETTING,
     OUTPUT_PATH_SETTING,
+    PRIMARY_BUTTON_STYLE,
     RESULT_TABLE_HEADERS,
     SERIES_PANEL_WIDTH,
+    SETTING_PAGE_STYLE,
 )
 from gui_helpers import (
     analysis_setup_from_row,
@@ -108,6 +113,7 @@ from gui_helpers import (
     plan_item_with_setup,
     raise_error,
     report_point_from_row,
+    RoundedComboBox,
     same_setup_angles,
     save_app_setting,
     series_display_name,
@@ -133,18 +139,45 @@ class MainWindow(QMainWindow):
         self.resize(1070, 700)
 
         root = QWidget()
+        root.setObjectName("AppRoot")
+        root.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.root = root
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.setObjectName("MainTabs")
+        self.tabs.tabBar().setDrawBase(False)
         self.daily_tab = DailyTab()
         self.manage_tab = ManageTab(self.refresh_analysis_tabs)
-        self.tabs.addTab(self.daily_tab, "Analyze")
+        self.tabs.addTab(self.daily_tab, "Analyse")
         self.tabs.addTab(self.manage_tab, "Setting")
+        self.tabs.setProperty("analysisMode", "daily")
+        self.tabs.setProperty("pageKind", "daily")
+        self.root.setProperty("pageKind", "daily")
+        self.tabs.currentChanged.connect(self.update_tab_page_style)
         layout.addWidget(self.tabs, stretch=1)
 
     def refresh_analysis_tabs(self) -> None:
         self.daily_tab.refresh_database_options()
+
+    def update_tab_page_style(self) -> None:
+        if self.tabs.currentWidget() is self.manage_tab:
+            page_kind = "setting"
+        else:
+            page_kind = "test" if self.daily_tab.analysis_mode == "simple_test" else "daily"
+        self.root.setProperty("pageKind", page_kind)
+        self.tabs.setProperty("pageKind", page_kind)
+        self.root.style().unpolish(self.root)
+        self.root.style().polish(self.root)
+        self.root.update()
+        self.tabs.style().unpolish(self.tabs)
+        self.tabs.style().polish(self.tabs)
+        self.tabs.tabBar().style().unpolish(self.tabs.tabBar())
+        self.tabs.tabBar().style().polish(self.tabs.tabBar())
+        self.tabs.update()
 
 
 class AnalysisTab(QWidget):
@@ -165,118 +198,83 @@ class AnalysisTab(QWidget):
         self.suppress_plan_load = True
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 4)
-        layout.setSpacing(2)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
         self.settings_group = self.build_settings_group(default_image_path)
         layout.addWidget(self.settings_group)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.build_table_group())
         splitter.addWidget(self.build_preview_group())
-        splitter.setSizes([560, 220])
+        splitter.setSizes([820, 240])
         layout.addWidget(splitter, stretch=1)
 
         self.refresh_database_options()
         self.suppress_plan_load = False
 
-    def build_settings_group(self, default_image_path: str) -> QGroupBox:
-        group = QGroupBox()
-        layout = QVBoxLayout(group)
+    def build_settings_group(self, default_image_path: str) -> QWidget:
+        group = QFrame()
+        group.setObjectName("SettingsSection")
+        group.setFrameShape(QFrame.Shape.StyledPanel)
+        layout = QHBoxLayout(group)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setSpacing(5)
 
-        top_row = QHBoxLayout()
-        top_row.setSpacing(8)
-        self.add_settings_leading_widgets(top_row)
+        self.add_settings_leading_widgets(layout)
+        layout.addSpacing(12)
 
-        self.path_group = QGroupBox()
-        path_row = QVBoxLayout(self.path_group)
-        path_row.setContentsMargins(6, 4, 6, 4)
-        path_row.setSpacing(4)
-        self.image_path = QLineEdit(load_app_setting(INPUT_PATH_SETTING, default_image_path))
-        self.image_path.setMinimumWidth(145)
+        self.input_default_path = load_app_setting(INPUT_PATH_SETTING, default_image_path)
+        self.image_path = QLineEdit()
+        self.image_path.setMinimumWidth(120)
         self.image_path.editingFinished.connect(self.input_path_edited)
         image_button = QPushButton("Browse")
         image_button.clicked.connect(self.browse_images)
-        image_group = QHBoxLayout()
-        image_group.setSpacing(4)
         input_label = QLabel("Input")
-        input_label.setFixedWidth(44)
-        input_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        image_group.addWidget(input_label)
-        image_group.addWidget(self.image_path, stretch=1)
-        image_group.addWidget(image_button)
-        path_row.addLayout(image_group)
+        input_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(input_label)
+        layout.addWidget(self.image_path, stretch=1)
+        layout.addWidget(image_button)
+        layout.addSpacing(12)
 
         self.output_path = QLineEdit(load_app_setting(OUTPUT_PATH_SETTING, str(DEFAULT_DEBUG_OUTPUT)))
-        self.output_path.setMinimumWidth(145)
         self.output_path.editingFinished.connect(self.output_path_edited)
-        output_button = QPushButton("Browse")
-        output_button.clicked.connect(self.browse_output)
-        output_group = QHBoxLayout()
-        output_group.setSpacing(4)
-        output_label = QLabel("Output")
-        output_label.setFixedWidth(44)
-        output_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        output_group.addWidget(output_label)
-        output_group.addWidget(self.output_path, stretch=1)
-        output_group.addWidget(output_button)
-        path_row.addLayout(output_group)
-        top_row.addWidget(self.path_group, stretch=1)
 
-        self.setups_group = QGroupBox()
-        option_row = QVBoxLayout(self.setups_group)
-        option_row.setContentsMargins(6, 4, 6, 4)
-        option_row.setSpacing(4)
-        self.machine_combo = QComboBox()
+        self.machine_combo = RoundedComboBox()
         self.machine_combo.setEditable(True)
-        self.machine_combo.setMinimumWidth(110)
-        self.machine_combo.setMaximumWidth(150)
-        option_row.addWidget(compact_field("Machine", self.machine_combo))
+        self.machine_combo.setMinimumWidth(92)
+        self.machine_combo.setMaximumWidth(130)
+        layout.addWidget(self.machine_combo)
 
-        self.inspection_type = QComboBox()
+        self.inspection_type = RoundedComboBox()
         self.inspection_type.setEditable(True)
         self.inspection_type.addItems(["daily", "temporary", "post_adjustment"])
         self.inspection_type.setCurrentText(self.default_inspection)
         self.inspection_type.setMinimumWidth(110)
         self.inspection_type.setMaximumWidth(150)
         if self.show_inspection:
-            option_row.addWidget(compact_field("Inspection", self.inspection_type))
+            layout.addWidget(compact_field("Inspection", self.inspection_type))
 
-        self.preset_combo = QComboBox()
+        self.preset_combo = RoundedComboBox()
         self.preset_combo.currentTextChanged.connect(self.load_plan_preview)
         self.preset_combo.setMinimumWidth(110)
         self.preset_combo.setMaximumWidth(150)
-        option_row.addWidget(compact_field("Preset", self.preset_combo))
-        top_row.addWidget(self.setups_group)
+        preset_label = QLabel("Preset")
+        layout.addWidget(preset_label)
+        layout.addWidget(self.preset_combo)
+        layout.addSpacing(12)
 
-        self.actions_group = QGroupBox()
-        actions_row = QGridLayout(self.actions_group)
-        actions_row.setContentsMargins(6, 4, 6, 4)
-        actions_row.setHorizontalSpacing(6)
-        actions_row.setVerticalSpacing(6)
-        self.analyze_button = QPushButton("Analyze")
+        self.analyze_button = QPushButton("Analyse")
+        self.analyze_button.setObjectName("primaryButton")
+        self.analyze_button.setStyleSheet(PRIMARY_BUTTON_STYLE)
         self.analyze_button.clicked.connect(self.analyze_clicked)
-        self.export_button = QPushButton("Review & Output")
-        self.export_button.clicked.connect(self.export_pdf_clicked)
         self.output_count = QSpinBox()
         self.output_count.setRange(1, 50)
         self.output_count.setValue(15)
         self.output_count.setMinimumWidth(64)
         self.output_count_widget = compact_field("Recent", self.output_count)
         self.output_count_widget.setVisible(False)
-        action_button_width = max(
-            96,
-            self.analyze_button.sizeHint().width(),
-            self.export_button.sizeHint().width(),
-        )
-        for button in [self.analyze_button, self.export_button]:
-            button.setMinimumSize(action_button_width, 32)
-        actions_row.addWidget(self.analyze_button, 0, 0, 1, 2)
-        actions_row.addWidget(self.output_count_widget, 1, 1)
-        actions_row.addWidget(self.export_button, 2, 0, 1, 2)
-        top_row.addWidget(self.actions_group)
-        layout.addLayout(top_row)
+        self.analyze_button.setMinimumSize(max(96, self.analyze_button.sizeHint().width()), 32)
+        layout.addWidget(self.analyze_button)
 
         self.pixel_size_value = value_label()
         self.beam_size_value = value_label()
@@ -309,13 +307,14 @@ class AnalysisTab(QWidget):
         layout.setSpacing(6)
 
         self.series_panel = QFrame()
+        self.series_panel.setObjectName("SeriesPanel")
         self.series_panel.setFrameShape(QFrame.Shape.StyledPanel)
         self.series_panel.setFrameShadow(QFrame.Shadow.Plain)
         self.series_panel.setFixedWidth(SERIES_PANEL_WIDTH if show_series_list else 0)
         series_layout = QVBoxLayout(self.series_panel)
-        series_layout.setContentsMargins(4, 4, 4, 4)
-        series_layout.setSpacing(4)
-        self.series_query_mode = QComboBox()
+        series_layout.setContentsMargins(8, 8, 8, 8)
+        series_layout.setSpacing(6)
+        self.series_query_mode = RoundedComboBox()
         self.series_query_mode.addItem("Recent count", "count")
         self.series_query_mode.addItem("Date range", "date")
         self.series_query_mode.currentIndexChanged.connect(self.update_series_query_mode)
@@ -361,7 +360,8 @@ class AnalysisTab(QWidget):
         self.series_list = QListWidget()
         self.series_list.setVisible(show_series_list)
         series_layout.addWidget(self.series_list, stretch=1)
-        self.save_series_button = QPushButton("Save")
+        self.save_series_button = QPushButton("Series Save")
+        self.save_series_button.setObjectName("seriesSaveButton")
         self.save_series_button.setVisible(show_series_list)
         self.save_series_button.setMinimumHeight(56)
         self.save_series_button.clicked.connect(self.save_selected_series)
@@ -370,17 +370,21 @@ class AnalysisTab(QWidget):
         self.active_toggle_button.setVisible(show_series_list)
         self.active_toggle_button.clicked.connect(self.toggle_selected_series_active)
         series_layout.addWidget(self.active_toggle_button)
-        self.remove_series_button = QPushButton("Delete")
+        self.remove_series_button = QPushButton("Series Delete")
+        self.remove_series_button.setObjectName("seriesDeleteButton")
         self.remove_series_button.setVisible(show_series_list)
         self.remove_series_button.clicked.connect(self.remove_selected_series)
         series_layout.addWidget(self.remove_series_button)
         layout.addWidget(self.series_panel)
 
-        table_group = QWidget()
+        table_group = QFrame()
+        table_group.setObjectName("AnalysisTablePanel")
         table_layout = QVBoxLayout(table_group)
-        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setContentsMargins(8, 8, 8, 8)
+        table_layout.setSpacing(6)
         self.table = QTableWidget(0, len(RESULT_TABLE_HEADERS))
         self.table.setHorizontalHeaderLabels(RESULT_TABLE_HEADERS)
+        self.table.setAlternatingRowColors(True)
         configure_result_table(self.table)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -388,21 +392,33 @@ class AnalysisTab(QWidget):
         table_layout.addWidget(self.table)
         table_button_row = QHBoxLayout()
         table_button_row.setContentsMargins(0, 4, 0, 0)
-        table_button_row.addStretch()
+        self.clear_table_button = QPushButton("Clear Table")
+        self.clear_table_button.clicked.connect(self.clear_analysis_table)
+        self.setup_review_button = QPushButton("Setup Review")
+        self.setup_review_button.clicked.connect(self.setup_review_clicked)
+        self.series_review_button = QPushButton("Series Review")
+        self.series_review_button.clicked.connect(self.export_pdf_clicked)
         self.delete_row_button = QPushButton("Delete Row")
         self.delete_row_button.clicked.connect(self.delete_selected_simple_row)
         self.delete_row_button.setVisible(False)
         self.csv_button = QPushButton("Export CSV")
         self.csv_button.clicked.connect(self.export_current_table_csv)
-        table_button_row.addWidget(self.delete_row_button)
         table_button_row.addWidget(self.csv_button)
+        table_button_row.addWidget(self.clear_table_button)
+        table_button_row.addWidget(self.delete_row_button)
+        table_button_row.addStretch()
+        table_button_row.addWidget(self.setup_review_button)
+        table_button_row.addWidget(self.series_review_button)
         table_layout.addLayout(table_button_row)
         layout.addWidget(table_group, stretch=1)
         return group
 
-    def build_preview_group(self) -> QGroupBox:
-        group = QGroupBox("Analyzed Images")
+    def build_preview_group(self) -> QWidget:
+        group = QWidget()
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(0, 0, 0, 0)
+        image_group = QGroupBox("Analysed Images")
+        image_layout = QVBoxLayout(image_group)
         self.preview = QLabel()
         self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview.setMinimumSize(190, 190)
@@ -416,14 +432,21 @@ class AnalysisTab(QWidget):
         self.next_preview_button.clicked.connect(self.show_next_preview)
         navigation.addWidget(self.previous_preview_button)
         navigation.addWidget(self.next_preview_button)
+        image_layout.addWidget(self.preview, stretch=2)
+        image_layout.addLayout(navigation)
+        layout.addWidget(image_group, stretch=2)
 
         self.log_output = QTextEdit()
+        self.log_output.setObjectName("LogOutput")
         self.log_output.setReadOnly(True)
         self.log_output.setMaximumHeight(110)
-        layout.addWidget(self.preview, stretch=2)
-        layout.addLayout(navigation)
-        layout.addWidget(QLabel("Log"))
-        layout.addWidget(self.log_output, stretch=1)
+        self.log_output.setFrameShape(QFrame.Shape.NoFrame)
+        log_group = QGroupBox("Log")
+        log_layout = QVBoxLayout(log_group)
+        log_layout.setContentsMargins(4, 0, 4, 2)
+        log_layout.setSpacing(0)
+        log_layout.addWidget(self.log_output)
+        layout.addWidget(log_group, stretch=1)
         return group
 
     def remove_selected_series(self) -> None:
@@ -434,6 +457,19 @@ class AnalysisTab(QWidget):
 
     def delete_selected_simple_row(self) -> None:
         return
+
+    def setup_review_clicked(self) -> None:
+        return
+
+    def clear_analysis_table(self) -> None:
+        self.current_series = None
+        self.table.setRowCount(0)
+        self.reset_preview()
+        self.update_save_button_state()
+
+    def reset_preview(self, message: str = "解析後、行を選択してください") -> None:
+        self.preview.clear()
+        self.preview.setText(message)
 
     def refresh_database_options(self) -> None:
         try:
@@ -475,9 +511,10 @@ class AnalysisTab(QWidget):
         self.update_save_button_state()
 
     def browse_images(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Images", self.image_path.text())
+        path = QFileDialog.getExistingDirectory(self, "Images", str(self.image_path_value()))
         if path:
             self.image_path.setText(path)
+            self.input_default_path = path
             save_app_setting(INPUT_PATH_SETTING, path)
             self.load_plan_preview()
             self.update_save_button_state()
@@ -489,7 +526,10 @@ class AnalysisTab(QWidget):
             save_app_setting(OUTPUT_PATH_SETTING, path)
 
     def input_path_edited(self) -> None:
-        save_app_setting(INPUT_PATH_SETTING, self.image_path.text())
+        text = self.image_path.text().strip()
+        if text:
+            self.input_default_path = text
+            save_app_setting(INPUT_PATH_SETTING, text)
         self.load_plan_preview()
         self.update_save_button_state()
 
@@ -632,17 +672,17 @@ class AnalysisTab(QWidget):
             self.loaded_plan = []
             self.current_series = None
             self.table.setRowCount(0)
-            self.preview.clear()
-            self.preview.setText("解析後、行を選択してください")
+            self.reset_preview()
             self.log(f"解析計画の読み込みに失敗しました: {exc}")
             self.update_save_button_state()
+            self.update_analyse_button_state()
             return
         self.current_series = None
         self.render_plan_preview(self.loaded_plan)
-        self.preview.clear()
-        self.preview.setText("解析後、行を選択してください")
+        self.reset_preview()
         self.log(f"解析計画を読み込みました: {len(self.loaded_plan)} images.")
         self.update_save_button_state()
+        self.update_analyse_button_state()
 
     def discard_current_unsaved_series(self) -> None:
         if self.current_series is not None and not self.current_series.saved and self.current_series.source != "history":
@@ -659,6 +699,7 @@ class AnalysisTab(QWidget):
         self.current_series = series
         self.render_series(series)
         self.update_save_button_state()
+        self.update_analyse_button_state()
 
     def after_analysis(self, series: AnalysisSeries) -> None:
         self.log(f"解析が完了しました: {series.name}")
@@ -810,6 +851,108 @@ class AnalysisTab(QWidget):
     def update_save_button_state(self) -> None:
         if hasattr(self, "save_button"):
             self.save_button.setEnabled(self.current_series is not None and not self.current_series.saved)
+        self.update_analyse_button_state()
+
+    def update_analyse_button_state(self) -> None:
+        if not hasattr(self, "analyze_button"):
+            return
+        selected_history = self.current_series is not None and self.current_series.source == "history"
+        self.analyze_button.setEnabled(not selected_history)
+
+    def analysis_row_values(self, plan_item: AnalysisPlanItem, analysis: Analysis) -> list[str]:
+        result = analysis.result
+        return [
+            f"{plan_item.order:02d}",
+            plan_item.image_name,
+            plan_item.setup_label or "",
+            status_text(result.succeeded, result.dx_mm, result.dy_mm),
+            value_text(result.dx_mm),
+            value_text(result.dy_mm),
+            value_text(result.distance_mm),
+            value_text(plan_item.gantry_angle),
+            value_text(plan_item.collimator_angle),
+            value_text(plan_item.couch_angle),
+            plan_item.dx_positive_label or "",
+            plan_item.dx_negative_label or "",
+            plan_item.dy_positive_label or "",
+            plan_item.dy_negative_label or "",
+            optional_parameter_text(result.parameters.beam_size_px),
+            optional_parameter_text(result.parameters.target_size_px),
+            f"{result.parameters.pixel_size_mm:.4f}",
+            "otsu" if result.parameters.beam_threshold == 0 else str(result.parameters.beam_threshold),
+            str(result.parameters.ball_sensitivity),
+        ]
+
+    def point_row_values(self, row: int, point: ReportPoint) -> list[str]:
+        return [
+            f"{row + 1:02d}",
+            point.image_name,
+            point.setup_label or "",
+            status_text(True, point.dx_mm, point.dy_mm),
+            value_text(point.dx_mm),
+            value_text(point.dy_mm),
+            value_text(point.distance_mm),
+            value_text(point.gantry_angle),
+            value_text(point.collimator_angle),
+            value_text(point.couch_angle),
+            point.dx_positive_label or "",
+            point.dx_negative_label or "",
+            point.dy_positive_label or "",
+            point.dy_negative_label or "",
+            optional_parameter_text(point.beam_size_px),
+            optional_parameter_text(point.target_size_px),
+            f"{point.pixel_size_mm:.4f}",
+            "otsu" if point.beam_threshold == 0 else str(point.beam_threshold),
+            str(point.ball_sensitivity),
+        ]
+
+    def plan_row_values(self, plan_item: AnalysisPlanItem) -> list[str]:
+        parameters = plan_item.parameters
+        return [
+            f"{plan_item.order:02d}",
+            plan_item.image_name,
+            plan_item.setup_label or "",
+            "",
+            "",
+            "",
+            "",
+            value_text(plan_item.gantry_angle),
+            value_text(plan_item.collimator_angle),
+            value_text(plan_item.couch_angle),
+            plan_item.dx_positive_label or "",
+            plan_item.dx_negative_label or "",
+            plan_item.dy_positive_label or "",
+            plan_item.dy_negative_label or "",
+            optional_parameter_text(parameters.beam_size_px if parameters else None),
+            optional_parameter_text(parameters.target_size_px if parameters else None),
+            f"{parameters.pixel_size_mm:.4f}" if parameters else "",
+            ("otsu" if parameters and parameters.beam_threshold == 0 else str(parameters.beam_threshold)) if parameters else "",
+            str(parameters.ball_sensitivity) if parameters else "",
+        ]
+
+    def set_result_table_row_values(self, row: int, values: list[str]) -> None:
+        for column, value in enumerate(values):
+            table_item = QTableWidgetItem(value)
+            if column == 0:
+                table_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if column == 3:
+                apply_status_style(table_item, value)
+            self.table.setItem(row, column, table_item)
+
+    def setup_combo_for_plan_item(
+        self,
+        plan_item: AnalysisPlanItem,
+        setups: list[AnalysisSetup],
+        row: int,
+    ) -> QComboBox:
+        combo = RoundedComboBox()
+        combo.addItem("", None)
+        for setup in setups:
+            combo.addItem(setup.name, setup)
+        if plan_item.setup_label:
+            combo.setCurrentText(plan_item.setup_label)
+        combo.currentIndexChanged.connect(lambda _index, table_row=row: self.plan_setup_changed(table_row))
+        return combo
 
     def render_series(self, series: AnalysisSeries) -> None:
         if series.points and not series.analyses:
@@ -817,35 +960,7 @@ class AnalysisTab(QWidget):
             return
         self.table.setRowCount(len(series.plan))
         for row, (plan_item, analysis) in enumerate(zip(series.plan, series.analyses)):
-            result = analysis.result
-            values = [
-                f"{plan_item.order:02d}",
-                plan_item.image_name,
-                plan_item.setup_label or "",
-                status_text(result.succeeded, result.dx_mm, result.dy_mm),
-                value_text(result.dx_mm),
-                value_text(result.dy_mm),
-                value_text(result.distance_mm),
-                value_text(plan_item.gantry_angle),
-                value_text(plan_item.collimator_angle),
-                value_text(plan_item.couch_angle),
-                plan_item.dx_positive_label or "",
-                plan_item.dx_negative_label or "",
-                plan_item.dy_positive_label or "",
-                plan_item.dy_negative_label or "",
-                optional_parameter_text(result.parameters.beam_size_px),
-                optional_parameter_text(result.parameters.target_size_px),
-                f"{result.parameters.pixel_size_mm:.4f}",
-                "otsu" if result.parameters.beam_threshold == 0 else str(result.parameters.beam_threshold),
-                str(result.parameters.ball_sensitivity),
-            ]
-            for column, value in enumerate(values):
-                table_item = QTableWidgetItem(value)
-                if column == 0:
-                    table_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if column == 3:
-                    apply_status_style(table_item, value)
-                self.table.setItem(row, column, table_item)
+            self.set_result_table_row_values(row, self.analysis_row_values(plan_item, analysis))
         configure_result_table(self.table)
         if series.analyses:
             self.select_preview_row(0)
@@ -853,34 +968,7 @@ class AnalysisTab(QWidget):
     def render_persisted_series(self, series: AnalysisSeries) -> None:
         self.table.setRowCount(len(series.points))
         for row, point in enumerate(series.points):
-            values = [
-                f"{row + 1:02d}",
-                point.image_name,
-                point.setup_label or "",
-                status_text(True, point.dx_mm, point.dy_mm),
-                value_text(point.dx_mm),
-                value_text(point.dy_mm),
-                value_text(point.distance_mm),
-                value_text(point.gantry_angle),
-                value_text(point.collimator_angle),
-                value_text(point.couch_angle),
-                point.dx_positive_label or "",
-                point.dx_negative_label or "",
-                point.dy_positive_label or "",
-                point.dy_negative_label or "",
-                optional_parameter_text(point.beam_size_px),
-                optional_parameter_text(point.target_size_px),
-                f"{point.pixel_size_mm:.4f}",
-                "otsu" if point.beam_threshold == 0 else str(point.beam_threshold),
-                str(point.ball_sensitivity),
-            ]
-            for column, value in enumerate(values):
-                table_item = QTableWidgetItem(value)
-                if column == 0:
-                    table_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if column == 3:
-                    apply_status_style(table_item, value)
-                self.table.setItem(row, column, table_item)
+            self.set_result_table_row_values(row, self.point_row_values(row, point))
         configure_result_table(self.table)
         if series.points:
             self.select_preview_row(0)
@@ -888,43 +976,10 @@ class AnalysisTab(QWidget):
     def render_plan_preview(self, plan: list[AnalysisPlanItem]) -> None:
         self.updating_plan_table = True
         self.table.setRowCount(len(plan))
+        setups = self.available_setups()
         for row, plan_item in enumerate(plan):
-            values = [
-                f"{plan_item.order:02d}",
-                plan_item.image_name,
-                plan_item.setup_label or "",
-                "",
-                "",
-                "",
-                "",
-                value_text(plan_item.gantry_angle),
-                value_text(plan_item.collimator_angle),
-                value_text(plan_item.couch_angle),
-                plan_item.dx_positive_label or "",
-                plan_item.dx_negative_label or "",
-                plan_item.dy_positive_label or "",
-                plan_item.dy_negative_label or "",
-                optional_parameter_text(plan_item.parameters.beam_size_px if plan_item.parameters else None),
-                optional_parameter_text(plan_item.parameters.target_size_px if plan_item.parameters else None),
-                f"{plan_item.parameters.pixel_size_mm:.4f}" if plan_item.parameters else "",
-                ("otsu" if plan_item.parameters and plan_item.parameters.beam_threshold == 0 else str(plan_item.parameters.beam_threshold)) if plan_item.parameters else "",
-                str(plan_item.parameters.ball_sensitivity) if plan_item.parameters else "",
-            ]
-            for column, value in enumerate(values):
-                table_item = QTableWidgetItem(value)
-                if column == 0:
-                    table_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if column == 3:
-                    apply_status_style(table_item, value)
-                self.table.setItem(row, column, table_item)
-            combo = QComboBox()
-            combo.addItem("", None)
-            for setup in self.available_setups():
-                combo.addItem(setup.name, setup)
-            if plan_item.setup_label:
-                combo.setCurrentText(plan_item.setup_label)
-            combo.currentIndexChanged.connect(lambda _index, table_row=row: self.plan_setup_changed(table_row))
-            self.table.setCellWidget(row, 2, combo)
+            self.set_result_table_row_values(row, self.plan_row_values(plan_item))
+            self.table.setCellWidget(row, 2, self.setup_combo_for_plan_item(plan_item, setups, row))
         configure_result_table(self.table)
         self.updating_plan_table = False
         if plan:
@@ -987,36 +1042,31 @@ class AnalysisTab(QWidget):
     def clear_current_analysis_results(self) -> None:
         if self.current_series is None or self.current_series.saved or self.current_series.source == "history":
             self.current_series = None
-            self.preview.clear()
-            self.preview.setText("解析後、行を選択してください")
+            self.reset_preview()
             return
         if hasattr(self, "series") and self.current_series in self.series:
             self.series.remove(self.current_series)
             self.render_series_list()
         self.current_series = None
         self.render_plan_preview(self.loaded_plan)
-        self.preview.clear()
-        self.preview.setText("setupが変更されたため解析結果をクリアしました。")
+        self.reset_preview("setupが変更されたため解析結果をクリアしました。")
 
     def update_preview_from_selection(self) -> None:
         if self.current_series is None:
             row = self.selected_row()
             if row is not None and self.show_unanalyzed_plan_preview(row):
                 return
-            self.preview.clear()
-            self.preview.setText("解析後、行を選択してください")
+            self.reset_preview()
             return
         row = self.selected_row()
         if row is None:
-            self.preview.clear()
-            self.preview.setText("行を選択してください")
+            self.reset_preview("行を選択してください")
             return
         if row < 0 or row >= len(self.current_series.analyses):
             if self.current_series.points and 0 <= row < len(self.current_series.points):
                 pixmap = focused_overlay_pixmap(self.current_series.points[row])
                 if pixmap is None:
-                    self.preview.clear()
-                    self.preview.setText("プレビュー画像を生成できません")
+                    self.reset_preview("プレビュー画像を生成できません")
                 else:
                     self.preview.setPixmap(
                         pixmap.scaled(
@@ -1028,8 +1078,7 @@ class AnalysisTab(QWidget):
                 return
             if self.show_unanalyzed_series_preview(row):
                 return
-            self.preview.clear()
-            self.preview.setText("解析済みの行を選択してください")
+            self.reset_preview("解析済みの行を選択してください")
             return
         pixmap = self.preview_page_pixmap(self.current_series, row)
         self.preview.setPixmap(pixmap)
@@ -1169,7 +1218,7 @@ class AnalysisTab(QWidget):
         self.update_preview_from_selection()
 
     def image_path_value(self) -> Path:
-        return Path(self.image_path.text()).expanduser()
+        return Path(self.image_path.text().strip() or self.input_default_path).expanduser()
 
     def output_path_value(self) -> Path:
         return Path(self.output_path.text()).expanduser()
@@ -1197,9 +1246,12 @@ class DailyTab(AnalysisTab):
         )
         super().__init__(
             default_inspection="daily",
-            default_image_path="sample/set",
+            default_image_path="sample/set_01",
             show_inspection=False,
         )
+        self.setObjectName("AnalysePage")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.apply_mode_style()
         self.series_list.currentRowChanged.connect(self.select_series)
         self.series_panel.setFixedWidth(SERIES_PANEL_WIDTH)
         self.series_list.setVisible(True)
@@ -1207,31 +1259,33 @@ class DailyTab(AnalysisTab):
         self.remove_series_button.setVisible(True)
         self.active_toggle_button.setVisible(True)
         self.load_recent_saved_series()
+        self.clear_analysis_table()
         self.update_series_buttons()
 
     def build_table_group(self) -> QWidget:
         return self.build_series_table_group(show_series_list=True)
 
     def add_settings_leading_widgets(self, layout: QHBoxLayout) -> None:
-        mode_widget = QWidget()
-        mode_widget.setFixedWidth(MODE_WIDGET_SIZE[0])
-        mode_layout = QVBoxLayout(mode_widget)
-        mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(2)
-        mode_label = QLabel("Mode")
-        mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.mode_combo = QComboBox()
-        self.mode_combo.setMinimumHeight(44)
+        self.mode_combo = RoundedComboBox()
+        self.mode_combo.setFixedWidth(MODE_WIDGET_SIZE[0] - 40)
         self.mode_combo.addItem("Daily", "daily")
         self.mode_combo.addItem("Test", "simple_test")
         self.mode_combo.currentIndexChanged.connect(self.mode_changed)
-        mode_layout.addWidget(mode_label)
-        mode_layout.addWidget(self.mode_combo)
-        layout.addWidget(mode_widget)
+        layout.addWidget(self.mode_combo)
 
     def mode_changed(self) -> None:
         mode = self.mode_combo.currentData()
         if mode == self.analysis_mode:
+            return
+        previous_mode = self.analysis_mode
+        if not self.confirm_unsaved_before_mode_change():
+            self.mode_combo.blockSignals(True)
+            try:
+                index = self.mode_combo.findData(previous_mode)
+                if index >= 0:
+                    self.mode_combo.setCurrentIndex(index)
+            finally:
+                self.mode_combo.blockSignals(False)
             return
         self.analysis_mode = str(mode)
         self.reset_temporary_modes()
@@ -1244,7 +1298,7 @@ class DailyTab(AnalysisTab):
             self.remove_series_button.setVisible(True)
             self.active_toggle_button.setVisible(True)
             self.delete_row_button.setVisible(False)
-            self.export_button.setEnabled(True)
+            self.series_review_button.setEnabled(True)
             self.load_plan_preview()
             self.load_recent_saved_series()
             self.update_series_buttons()
@@ -1253,7 +1307,75 @@ class DailyTab(AnalysisTab):
             self.start_set_test_mode()
         elif self.analysis_mode == "simple_test":
             self.start_simple_test_mode()
+        self.apply_mode_style()
         self.update_save_button_state()
+
+    def apply_mode_style(self) -> None:
+        mode = "test" if self.analysis_mode == "simple_test" else "daily"
+        self.setProperty("mode", mode)
+        self.setStyleSheet(ANALYSE_TEST_STYLE if self.analysis_mode == "simple_test" else ANALYSE_DAILY_STYLE)
+        parent = self.parent()
+        while parent is not None and not isinstance(parent, QTabWidget):
+            parent = parent.parent()
+        if isinstance(parent, QTabWidget):
+            parent.setProperty("analysisMode", mode)
+            if parent.currentWidget() is self:
+                parent.setProperty("pageKind", mode)
+                root = parent.parent()
+                if root is not None:
+                    root.setProperty("pageKind", mode)
+                    root.style().unpolish(root)
+                    root.style().polish(root)
+                    root.update()
+            parent.style().unpolish(parent)
+            parent.style().polish(parent)
+            parent.tabBar().style().unpolish(parent.tabBar())
+            parent.tabBar().style().polish(parent.tabBar())
+            parent.update()
+        widgets = [self, *self.findChildren(QWidget)]
+        for widget in widgets:
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+
+    def confirm_unsaved_before_mode_change(self) -> bool:
+        unsaved = self.unsaved_analysis_series()
+        if not unsaved:
+            return True
+        reply = QMessageBox.question(
+            self,
+            "未保存の解析結果",
+            "未保存の解析結果があります。保存してからモードを変更しますか？",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return False
+        if reply == QMessageBox.StandardButton.No:
+            return True
+        for series in unsaved:
+            self.current_series = series
+            if not self.save_result_from_preview(series):
+                return False
+        return True
+
+    def unsaved_analysis_series(self) -> list[AnalysisSeries]:
+        candidates: list[AnalysisSeries] = []
+        if self.current_series is not None:
+            candidates.append(self.current_series)
+        candidates.extend(getattr(self, "series", []))
+        unique: list[AnalysisSeries] = []
+        for series in candidates:
+            if series in unique:
+                continue
+            if series.source == "history" or series.saved:
+                continue
+            if not series.analyses:
+                continue
+            unique.append(series)
+        return unique
 
     def reset_temporary_modes(self) -> None:
         self.series.clear()
@@ -1268,13 +1390,12 @@ class DailyTab(AnalysisTab):
         self.simple_analysis_by_row = {}
         self.simple_loaded_inputs = []
         self.current_series = None
-        self.preview.clear()
-        self.preview.setText("解析後、行を選択してください")
+        self.reset_preview()
 
     def start_set_test_mode(self) -> None:
         self.temp_mode_active = True
         self.inspection_type.setCurrentText("temporary")
-        self.export_button.setEnabled(True)
+        self.series_review_button.setEnabled(True)
         self.series_panel.setFixedWidth(SERIES_PANEL_WIDTH)
         self.series_query_toggle.setVisible(True)
         self.series_list.setVisible(True)
@@ -1287,7 +1408,7 @@ class DailyTab(AnalysisTab):
     def start_simple_test_mode(self) -> None:
         self.temp_mode_active = False
         self.inspection_type.setCurrentText("simple_test")
-        self.export_button.setEnabled(False)
+        self.series_review_button.setEnabled(False)
         self.delete_row_button.setVisible(True)
         self.series_query_toggle.setChecked(False)
         self.series_query_toggle.setVisible(False)
@@ -1302,6 +1423,7 @@ class DailyTab(AnalysisTab):
         self.simple_series.analyses = []
         self.simple_analysis_by_row = {}
         self.simple_loaded_inputs = []
+        self.clear_analysis_table()
         self.load_plan_preview()
         self.log("Test modeを開始しました。")
 
@@ -1314,10 +1436,20 @@ class DailyTab(AnalysisTab):
             self.series_list.setCurrentRow(-1)
 
     def analyze_clicked(self) -> None:
+        if self.current_series is not None and self.current_series.source == "history":
+            return
         if self.analysis_mode == "simple_test":
             self.analyze_simple_clicked()
             return
         super().analyze_clicked()
+
+    def clear_analysis_table(self) -> None:
+        super().clear_analysis_table()
+        if hasattr(self, "series_list"):
+            self.series_list.blockSignals(True)
+            self.series_list.setCurrentRow(-1)
+            self.series_list.blockSignals(False)
+            self.update_series_buttons()
 
     def analyze_simple_clicked(self) -> None:
         try:
@@ -1356,6 +1488,7 @@ class DailyTab(AnalysisTab):
         self.render_simple_table()
         self.select_preview_row(len(self.loaded_plan) - len(plan))
         self.log(f"Testに画像を読み込みました: {len(plan)} images.")
+        self.update_analyse_button_state()
 
     def build_simple_plan(self) -> list[AnalysisPlanItem]:
         start_order = len(self.simple_series.plan) + 1
@@ -1430,65 +1563,11 @@ class DailyTab(AnalysisTab):
         for row, plan_item in enumerate(self.loaded_plan):
             analysis = self.simple_analysis_by_row.get(row)
             if analysis is None:
-                values = [
-                    f"{plan_item.order:02d}",
-                    plan_item.image_name,
-                    plan_item.setup_label or "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    value_text(plan_item.gantry_angle),
-                    value_text(plan_item.collimator_angle),
-                    value_text(plan_item.couch_angle),
-                    plan_item.dx_positive_label or "",
-                    plan_item.dx_negative_label or "",
-                    plan_item.dy_positive_label or "",
-                    plan_item.dy_negative_label or "",
-                    optional_parameter_text(plan_item.parameters.beam_size_px if plan_item.parameters else None),
-                    optional_parameter_text(plan_item.parameters.target_size_px if plan_item.parameters else None),
-                    f"{plan_item.parameters.pixel_size_mm:.4f}" if plan_item.parameters else "",
-                    ("otsu" if plan_item.parameters and plan_item.parameters.beam_threshold == 0 else str(plan_item.parameters.beam_threshold)) if plan_item.parameters else "",
-                    str(plan_item.parameters.ball_sensitivity) if plan_item.parameters else "",
-                ]
+                values = self.plan_row_values(plan_item)
             else:
-                result = analysis.result
-                values = [
-                    f"{plan_item.order:02d}",
-                    plan_item.image_name,
-                    plan_item.setup_label or "",
-                    status_text(result.succeeded, result.dx_mm, result.dy_mm),
-                    value_text(result.dx_mm),
-                    value_text(result.dy_mm),
-                    value_text(result.distance_mm),
-                    value_text(plan_item.gantry_angle),
-                    value_text(plan_item.collimator_angle),
-                    value_text(plan_item.couch_angle),
-                    plan_item.dx_positive_label or "",
-                    plan_item.dx_negative_label or "",
-                    plan_item.dy_positive_label or "",
-                    plan_item.dy_negative_label or "",
-                    optional_parameter_text(result.parameters.beam_size_px),
-                    optional_parameter_text(result.parameters.target_size_px),
-                    f"{result.parameters.pixel_size_mm:.4f}",
-                    "otsu" if result.parameters.beam_threshold == 0 else str(result.parameters.beam_threshold),
-                    str(result.parameters.ball_sensitivity),
-                ]
-            for column, value in enumerate(values):
-                table_item = QTableWidgetItem(value)
-                if column == 0:
-                    table_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if column == 3:
-                    apply_status_style(table_item, value)
-                self.table.setItem(row, column, table_item)
-            combo = QComboBox()
-            combo.addItem("", None)
-            for setup in setups:
-                combo.addItem(setup.name, setup)
-            if plan_item.setup_label:
-                combo.setCurrentText(plan_item.setup_label)
-            combo.currentIndexChanged.connect(lambda _index, table_row=row: self.plan_setup_changed(table_row))
-            self.table.setCellWidget(row, 2, combo)
+                values = self.analysis_row_values(plan_item, analysis)
+            self.set_result_table_row_values(row, values)
+            self.table.setCellWidget(row, 2, self.setup_combo_for_plan_item(plan_item, setups, row))
         configure_result_table(self.table)
         self.updating_plan_table = False
 
@@ -1510,8 +1589,7 @@ class DailyTab(AnalysisTab):
         self.simple_analysis_by_row.pop(row, None)
         self.render_simple_table()
         self.select_preview_row(row)
-        self.preview.clear()
-        self.preview.setText("setupが変更されたため、この行の解析結果をクリアしました。")
+        self.reset_preview("setupが変更されたため、この行の解析結果をクリアしました。")
 
     def delete_selected_simple_row(self) -> None:
         if self.analysis_mode != "simple_test":
@@ -1551,8 +1629,7 @@ class DailyTab(AnalysisTab):
         if self.loaded_plan:
             self.select_preview_row(min(row, len(self.loaded_plan) - 1))
         else:
-            self.preview.clear()
-            self.preview.setText("解析後、行を選択してください")
+            self.reset_preview()
 
     def update_preview_from_selection(self) -> None:
         if self.analysis_mode != "simple_test":
@@ -1560,15 +1637,13 @@ class DailyTab(AnalysisTab):
             return
         row = self.selected_row()
         if row is None:
-            self.preview.clear()
-            self.preview.setText("行を選択してください")
+            self.reset_preview("行を選択してください")
             return
         analysis = self.simple_analysis_by_row.get(row)
         if analysis is None or row >= len(self.loaded_plan):
             if self.show_unanalyzed_plan_preview(row):
                 return
-            self.preview.clear()
-            self.preview.setText("解析済みの行を選択してください")
+            self.reset_preview("解析済みの行を選択してください")
             return
         pixmap = pixmap_from_bgr(analysis.debug_images.focused_overlay).scaled(
             self.preview.size(),
@@ -1587,6 +1662,8 @@ class DailyTab(AnalysisTab):
         if self.analysis_mode not in ("daily", "set_test"):
             return
         if row < 0 or row >= len(self.series):
+            self.current_series = None
+            self.update_analyse_button_state()
             self.update_series_buttons()
             return
         self.set_current_series(self.series[row])
@@ -1600,6 +1677,7 @@ class DailyTab(AnalysisTab):
         self.remove_series_button.setEnabled(has_selection)
         self.save_series_button.setEnabled(has_selection)
         self.active_toggle_button.setEnabled(has_selection)
+        self.update_analyse_button_state()
 
     def update_set_test_series_buttons(self) -> None:
         self.update_series_buttons()
@@ -1622,8 +1700,7 @@ class DailyTab(AnalysisTab):
         else:
             self.current_series = None
             self.render_plan_preview(self.loaded_plan)
-            self.preview.clear()
-            self.preview.setText("解析後、行を選択してください")
+            self.reset_preview()
             self.update_save_button_state()
         self.log(f"シリーズリストから削除しました: {removed.name}")
         self.update_series_buttons()
@@ -1652,8 +1729,7 @@ class DailyTab(AnalysisTab):
         if self.current_series is series:
             self.current_series = None
             self.render_plan_preview(self.loaded_plan)
-            self.preview.clear()
-            self.preview.setText("解析後、行を選択してください")
+            self.reset_preview()
 
     def selected_series(self) -> AnalysisSeries | None:
         row = self.series_list.currentRow()
@@ -1672,16 +1748,14 @@ class DailyTab(AnalysisTab):
         self.series_list.clear()
         for series in self.series:
             item = QListWidgetItem(self.series_label(series))
-            if series.source == "history":
-                item.setBackground(QColor("#dddddd"))
             if not series.output_active:
                 item.setForeground(QColor("#777777"))
             self.series_list.addItem(item)
         self.series_list.blockSignals(False)
         if current_series in self.series:
             self.series_list.setCurrentRow(self.series.index(current_series))
-        elif self.series:
-            self.series_list.setCurrentRow(0)
+        else:
+            self.series_list.setCurrentRow(-1)
         self.update_series_buttons()
 
     def load_recent_saved_series(self) -> None:
@@ -1756,7 +1830,7 @@ class DailyTab(AnalysisTab):
             show_error(self, "保存エラー", ValueError("保存するシリーズを選択してください。"))
             return False
         if series.source == "history":
-            show_error(self, "保存エラー", ValueError("過去データはAnalyzeタブでは保存できません。"))
+            show_error(self, "保存エラー", ValueError("過去データはAnalyseタブでは保存できません。"))
             return False
         if series.saved:
             show_error(self, "保存エラー", ValueError("このシリーズは保存済みです。"))
@@ -1789,40 +1863,87 @@ class DailyTab(AnalysisTab):
             return
         self.save_selected_series()
 
-    def export_pdf_clicked(self) -> None:
+    def setup_review_clicked(self) -> None:
         if self.analysis_mode not in ("daily", "set_test"):
-            super().export_pdf_clicked()
+            show_error(self, "プレビューエラー", ValueError("Setup Reviewできる解析結果がありません。"))
             return
         try:
-            series_list = self.saved_series_for_output()
+            selected_point = self.selected_setup_review_point()
         except Exception as exc:
-            show_error(self, "出力エラー", exc)
+            show_error(self, "プレビューエラー", exc)
             return
-        if series_list is None:
-            return
-        if not series_list:
-            show_error(self, "出力エラー", ValueError("出力できる保存済みseriesがありません。"))
-            return
-        try:
-            grouped = self.report_data_from_series_list(series_list)
-            pages = render_grouped_report_pages(
-                grouped,
-                self.machine_name(),
-                show_mode_boundary=False,
+        review_state: dict[str, dict[str, list[ReportPoint]]] = {}
+
+        def build_review(count: int) -> tuple[list[QPixmap], list[str]]:
+            grouped = self.setup_review_data(selected_point, count)
+            review_state["grouped"] = grouped
+            return (
+                render_grouped_report_pages(
+                    grouped,
+                    self.machine_name(),
+                    show_mode_boundary=False,
+                ),
+                list(grouped.keys()),
             )
+
+        try:
+            pages, outline_titles = build_review(10)
         except Exception as exc:
             show_error(self, "プレビューエラー", exc)
             return
         PagePreviewDialog(
-            "Review & Output",
+            "Setup Review",
             pages,
-            list(grouped.keys()),
+            outline_titles,
             self,
-            export_pdf_handler=lambda: self.export_saved_pdf_from_preview(grouped),
+            export_pdf_handler=lambda: self.export_saved_pdf_from_preview(review_state["grouped"]),
             show_save_result_button=False,
+            review_count=10,
+            count_changed_handler=build_review,
         ).exec()
 
-    def saved_series_for_output(self) -> list[AnalysisSeries] | None:
+    def export_pdf_clicked(self) -> None:
+        if self.analysis_mode not in ("daily", "set_test"):
+            super().export_pdf_clicked()
+            return
+        review_state: dict[str, dict[str, list[ReportPoint]]] = {}
+
+        def build_review(count: int) -> tuple[list[QPixmap], list[str]]:
+            series_list = self.saved_series_for_output(count)
+            if series_list is None:
+                return [], []
+            if not series_list:
+                raise ValueError("出力できる保存済みseriesがありません。")
+            grouped = self.report_data_from_series_list(series_list)
+            review_state["grouped"] = grouped
+            return (
+                render_grouped_report_pages(
+                    grouped,
+                    self.machine_name(),
+                    show_mode_boundary=False,
+                ),
+                list(grouped.keys()),
+            )
+
+        try:
+            pages, outline_titles = build_review(self.output_count.value())
+        except Exception as exc:
+            show_error(self, "プレビューエラー", exc)
+            return
+        if not pages:
+            return
+        PagePreviewDialog(
+            "Series Review",
+            pages,
+            outline_titles,
+            self,
+            export_pdf_handler=lambda: self.export_saved_pdf_from_preview(review_state["grouped"]),
+            show_save_result_button=False,
+            review_count=self.output_count.value(),
+            count_changed_handler=build_review,
+        ).exec()
+
+    def saved_series_for_output(self, count: int | None = None) -> list[AnalysisSeries] | None:
         selected_row = self.series_list.currentRow()
         if selected_row < 0 or selected_row >= len(self.series):
             selected_row = 0
@@ -1833,7 +1954,7 @@ class DailyTab(AnalysisTab):
             reply = QMessageBox.question(
                 self,
                 "保存確認",
-                "最新の解析結果が保存されていません。保存してReview & Outputを続行しますか？",
+                "最新の解析結果が保存されていません。保存してSeries Reviewを続行しますか？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
             )
@@ -1842,11 +1963,12 @@ class DailyTab(AnalysisTab):
             self.current_series = selected
             if not self.save_result_from_preview(selected):
                 return []
+        limit = count if count is not None else self.output_count.value()
         return [
             series
             for series in self.series[selected_row:]
             if series.saved and series.output_active
-        ][:15]
+        ][:limit]
 
     def export_saved_pdf_from_preview(
         self,
@@ -1894,6 +2016,40 @@ class DailyTab(AnalysisTab):
             raise ValueError("条件に一致する保存済み解析結果がありません。")
         return grouped
 
+    def selected_setup_review_point(self) -> ReportPoint:
+        series = self.current_series
+        if series is None:
+            raise ValueError("Setup Reviewする解析結果を選択してください。")
+        row = self.selected_row()
+        if row is None:
+            raise ValueError("Setup Reviewする解析表の行を選択してください。")
+        if series.points:
+            if row < 0 or row >= len(series.points):
+                raise ValueError("Setup Reviewできる行を選択してください。")
+            return series.points[row]
+        if row < 0 or row >= min(len(series.plan), len(series.analyses)):
+            raise ValueError("Setup Reviewできる解析済み行を選択してください。")
+        return self.report_point_from_analysis(
+            series.plan[row],
+            series.analyses[row],
+            series.started_at or datetime.now().isoformat(timespec="seconds"),
+            series.inspection_type,
+        )
+
+    def setup_review_data(self, selected_point: ReportPoint, count: int) -> dict[str, list[ReportPoint]]:
+        label = selected_point.setup_label or selected_point.image_name
+        points = self.load_matching_history_for_point(
+            selected_point,
+            self.machine_name(),
+            count,
+        )
+        if selected_point not in points:
+            points.append(selected_point)
+        points = points[-count:]
+        if not points:
+            raise ValueError("Setup Reviewできる解析結果がありません。")
+        return {label: points}
+
     def report_data_with_current_series(self, series: AnalysisSeries) -> dict[str, list[ReportPoint]]:
         if self.analysis_mode == "simple_test":
             return super().report_data_with_current_series(series)
@@ -1930,36 +2086,110 @@ class DailyTab(AnalysisTab):
         for plan_item, analysis in zip(series.plan, series.analyses):
             if not analysis.result.succeeded:
                 continue
-            label = plan_item.setup_label or plan_item.image_name
-            result = analysis.result
-            points.append(
-                ReportPoint(
-                    analyzed_at=analyzed_at,
-                    image_name=plan_item.image_name,
-                    setup_label=label,
-                    dx_mm=float(result.dx_mm),
-                    dy_mm=float(result.dy_mm),
-                    distance_mm=float(result.distance_mm),
-                    gantry_angle=plan_item.gantry_angle,
-                    collimator_angle=plan_item.collimator_angle,
-                    couch_angle=plan_item.couch_angle,
-                    image_path=str(plan_item.image_path),
-                    pixel_size_mm=result.parameters.pixel_size_mm,
-                    beam_threshold=result.parameters.beam_threshold,
-                    ball_sensitivity=result.parameters.ball_sensitivity,
-                    beam_size_px=result.parameters.beam_size_px,
-                    target_size_px=result.parameters.target_size_px,
-                    x_axis_label=plan_item.x_axis_label or "",
-                    y_axis_label=plan_item.y_axis_label or "",
-                    dx_positive_label=plan_item.dx_positive_label or "+dx",
-                    dx_negative_label=plan_item.dx_negative_label or "-dx",
-                    dy_positive_label=plan_item.dy_positive_label or "+dy",
-                    dy_negative_label=plan_item.dy_negative_label or "-dy",
-                    x_inverted=plan_item.x_inverted,
-                    inspection_type=series.inspection_type,
-                )
-            )
+            points.append(self.report_point_from_analysis(plan_item, analysis, analyzed_at, series.inspection_type))
         return points
+
+    def report_point_from_analysis(
+        self,
+        plan_item: AnalysisPlanItem,
+        analysis: Analysis,
+        analyzed_at: str,
+        inspection_type: str,
+    ) -> ReportPoint:
+        label = plan_item.setup_label or plan_item.image_name
+        result = analysis.result
+        return ReportPoint(
+            analyzed_at=analyzed_at,
+            image_name=plan_item.image_name,
+            setup_label=label,
+            dx_mm=float(result.dx_mm),
+            dy_mm=float(result.dy_mm),
+            distance_mm=float(result.distance_mm),
+            gantry_angle=plan_item.gantry_angle,
+            collimator_angle=plan_item.collimator_angle,
+            couch_angle=plan_item.couch_angle,
+            image_path=str(plan_item.image_path),
+            pixel_size_mm=result.parameters.pixel_size_mm,
+            beam_threshold=result.parameters.beam_threshold,
+            ball_sensitivity=result.parameters.ball_sensitivity,
+            beam_size_px=result.parameters.beam_size_px,
+            target_size_px=result.parameters.target_size_px,
+            x_axis_label=plan_item.x_axis_label or "",
+            y_axis_label=plan_item.y_axis_label or "",
+            dx_positive_label=plan_item.dx_positive_label or "+dx",
+            dx_negative_label=plan_item.dx_negative_label or "-dx",
+            dy_positive_label=plan_item.dy_positive_label or "+dy",
+            dy_negative_label=plan_item.dy_negative_label or "-dy",
+            x_inverted=plan_item.x_inverted,
+            inspection_type=inspection_type,
+        )
+
+    def load_matching_history_for_point(
+        self,
+        point: ReportPoint,
+        machine_name: str | None,
+        limit: int,
+    ) -> list[ReportPoint]:
+        connection = connect_database(DEFAULT_DB_PATH)
+        try:
+            init_db(connection)
+            rows = connection.execute(
+                """
+                SELECT
+                    analysis_results.analyzed_at,
+                    analysis_results.image_name,
+                    analysis_results.image_path,
+                    analysis_results.note AS setup_label,
+                    analysis_results.dx_mm,
+                    analysis_results.dy_mm,
+                    analysis_results.distance_mm,
+                    analysis_results.gantry_angle,
+                    analysis_results.collimator_angle,
+                    analysis_results.couch_angle,
+                    analysis_results.pixel_size_mm,
+                    analysis_results.beam_threshold,
+                    analysis_results.ball_sensitivity,
+                    analysis_results.beam_size_px,
+                    analysis_results.target_size_px,
+                    analysis_results.x_axis_label,
+                    analysis_results.y_axis_label,
+                    analysis_results.dx_positive_label,
+                    analysis_results.dx_negative_label,
+                    analysis_results.dy_positive_label,
+                    analysis_results.dy_negative_label,
+                    analysis_results.x_inverted,
+                    sessions.inspection_type
+                FROM analysis_results
+                JOIN sessions ON sessions.id = analysis_results.session_id
+                LEFT JOIN machines ON machines.id = sessions.machine_id
+                WHERE analysis_results.succeeded = 1
+                  AND sessions.inspection_type = 'daily'
+                  AND analysis_results.note = ?
+                  AND analysis_results.analyzed_at <= ?
+                  AND (? IS NULL OR COALESCE(machines.name, sessions.machine_name) = ?)
+                  AND ((? IS NULL AND analysis_results.gantry_angle IS NULL) OR ABS(analysis_results.gantry_angle - ?) < 0.000001)
+                  AND ((? IS NULL AND analysis_results.collimator_angle IS NULL) OR ABS(analysis_results.collimator_angle - ?) < 0.000001)
+                  AND ((? IS NULL AND analysis_results.couch_angle IS NULL) OR ABS(analysis_results.couch_angle - ?) < 0.000001)
+                ORDER BY analysis_results.analyzed_at DESC, analysis_results.id DESC
+                LIMIT ?
+                """,
+                (
+                    point.setup_label,
+                    point.analyzed_at,
+                    machine_name,
+                    machine_name,
+                    point.gantry_angle,
+                    point.gantry_angle,
+                    point.collimator_angle,
+                    point.collimator_angle,
+                    point.couch_angle,
+                    point.couch_angle,
+                    limit,
+                ),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [report_point_from_row(row) for row in reversed(rows)]
 
     def load_matching_history(
         self,
@@ -2070,12 +2300,18 @@ class DailyTab(AnalysisTab):
 class ManageTab(QWidget):
     def __init__(self, on_changed) -> None:
         super().__init__()
+        self.setObjectName("SettingPage")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(SETTING_PAGE_STYLE)
         self.on_changed = on_changed
         self.setup_edit_row: int | None = None
         self.setup_edit_mode: str | None = None
         self.loading_setups = False
         layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(8)
         left = QWidget()
+        left.setObjectName("SettingsPanel")
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.addWidget(self.build_machine_group())
@@ -2092,17 +2328,18 @@ class ManageTab(QWidget):
         layout.setContentsMargins(8, 6, 8, 6)
         layout.setSpacing(6)
 
-        self.machine_select = QComboBox()
+        self.machine_select = RoundedComboBox()
         self.machine_select.currentTextChanged.connect(self.select_machine)
         self.machine_name = QLineEdit()
         self.machine_save_button = QPushButton("Register")
         self.machine_save_button.clicked.connect(self.save_machine)
-        self.default_machine_select = QComboBox()
+        self.default_machine_select = RoundedComboBox()
         self.default_machine_select.currentTextChanged.connect(self.default_machine_changed)
         layout.addWidget(self.machine_select)
         machine_fields = QHBoxLayout()
         machine_fields.setSpacing(6)
         name_label = QLabel("Name")
+        name_label.setObjectName("PlainLabel")
         name_label.setFixedWidth(44)
         machine_fields.addWidget(name_label)
         machine_fields.addWidget(self.machine_name, stretch=1)
@@ -2111,6 +2348,7 @@ class ManageTab(QWidget):
         default_row = QHBoxLayout()
         default_row.setSpacing(6)
         default_label = QLabel("default:")
+        default_label.setObjectName("PlainLabel")
         default_label.setFixedWidth(54)
         default_row.addWidget(default_label)
         default_row.addWidget(self.default_machine_select, stretch=1)
@@ -2176,11 +2414,11 @@ class ManageTab(QWidget):
 
         preset_top = QHBoxLayout()
         preset_top.setSpacing(6)
-        self.preset_select = QComboBox()
+        self.preset_select = RoundedComboBox()
         self.preset_select.currentTextChanged.connect(self.update_preset_action_label)
         self.preset_edit_button = QPushButton("Register")
         self.preset_edit_button.clicked.connect(self.edit_selected_preset)
-        self.default_preset_select = QComboBox()
+        self.default_preset_select = RoundedComboBox()
         self.default_preset_select.currentTextChanged.connect(self.default_preset_changed)
         self.preset_select.setFixedHeight(self.preset_edit_button.sizeHint().height())
         preset_top.addWidget(self.preset_select, stretch=1)
@@ -2189,6 +2427,7 @@ class ManageTab(QWidget):
         default_row = QHBoxLayout()
         default_row.setSpacing(6)
         default_label = QLabel("default:")
+        default_label.setObjectName("PlainLabel")
         default_label.setFixedWidth(54)
         default_row.addWidget(default_label)
         default_row.addWidget(self.default_preset_select, stretch=1)
@@ -2205,6 +2444,7 @@ class ManageTab(QWidget):
         row = QHBoxLayout()
         row.setSpacing(6)
         label = QLabel("|dx|, |dy| <= mm")
+        label.setObjectName("PlainLabel")
         self.ok_threshold = QDoubleSpinBox()
         self.ok_threshold.setRange(0.01, 99.99)
         self.ok_threshold.setDecimals(2)
@@ -2632,6 +2872,7 @@ class ManageTab(QWidget):
 
 def run() -> int:
     app = QApplication([])
+    app.setStyleSheet(APP_STYLE)
     signal.signal(signal.SIGINT, lambda *_args: app.quit())
     signal_timer = QTimer()
     signal_timer.timeout.connect(lambda: None)

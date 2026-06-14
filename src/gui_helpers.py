@@ -7,9 +7,12 @@ import cv2
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QListView,
     QMessageBox,
     QSpinBox,
     QTableWidget,
@@ -29,6 +32,50 @@ from gui_models import AnalysisSeries
 from report import ReportPoint
 from setups import AnalysisSetup, SetupPreset
 from workflow import AnalysisPlanItem
+
+
+class RoundedComboBox(QComboBox):
+    POPUP_STYLESHEET = """
+        QAbstractItemView {
+            color: #111827;
+            background: #ffffff;
+            selection-background-color: #dbeafe;
+            selection-color: #111827;
+            outline: 0;
+        }
+        QAbstractItemView::item {
+            color: #111827;
+            background: #ffffff;
+            min-height: 24px;
+        }
+        QAbstractItemView::item:selected,
+        QAbstractItemView::item:selected:active,
+        QAbstractItemView::item:selected:!active,
+        QAbstractItemView::item:hover {
+            color: #111827;
+            background: #dbeafe;
+        }
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        view = QListView(self)
+        view.setMouseTracking(True)
+        view.setUniformItemSizes(False)
+        view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        view.setStyleSheet(self.POPUP_STYLESHEET)
+        self.setView(view)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setPen(QColor("#64748b"))
+        painter.drawText(
+            self.rect().adjusted(0, 0, -10, 0),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            "▼",
+        )
+
 
 def pixmap_from_bgr(image) -> QPixmap:
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -50,6 +97,7 @@ def compact_field(label: str, widget: QWidget) -> QWidget:
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(4)
     title = QLabel(label)
+    title.setObjectName("PlainLabel")
     title.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     layout.addWidget(title)
     layout.addWidget(widget)
@@ -66,7 +114,29 @@ def value_label() -> QLabel:
 
 def configure_result_table(table: QTableWidget) -> None:
     header = table.horizontalHeader()
-    widths = [44, 88, 170, 76, 64, 64, 86, 66, 78, 58, 54, 54, 54, 54, 74, 74, 78, 72, 72]
+    widths = [
+        58,
+        130,
+        190,
+        78,
+        70,
+        70,
+        104,
+        82,
+        108,
+        76,
+        58,
+        58,
+        58,
+        58,
+        84,
+        88,
+        86,
+        88,
+        92,
+    ]
+    header.setMinimumSectionSize(56)
+    header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
     for column, width in enumerate(widths):
         header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
         table.setColumnWidth(column, width)

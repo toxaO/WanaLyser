@@ -35,7 +35,7 @@ class SetupPreset:
 
 DAILY_14 = SetupPreset(
     name="daily-14",
-    description="14 image daily Winston-Lutz order in sample/set",
+    description="14 image daily Winston-Lutz order in sample/set_01",
     setups=(
         AnalysisSetup("gantry_180(-)", 180.0, 0.0, 0.0, dx_positive_label="270", dx_negative_label="90", dy_positive_label="G", dy_negative_label="T"),
         AnalysisSetup("gantry_90", 90.0, 0.0, 0.0, dx_positive_label="P", dx_negative_label="A", dy_positive_label="G", dy_negative_label="T"),
