@@ -5,6 +5,9 @@ from pathlib import Path
 
 from core import (
     AnalysisParameters,
+    DEFAULT_BALL_SENSITIVITY,
+    DEFAULT_BEAM_THRESHOLD,
+    DEFAULT_PIXEL_SIZE_MM,
     analyze_path,
     format_result_line,
     save_debug_output,
@@ -220,19 +223,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--beam-threshold",
         type=int,
-        default=0,
+        default=DEFAULT_BEAM_THRESHOLD,
         help="beam threshold. 0 uses Otsu thresholding",
     )
     parser.add_argument(
         "--ball-sensitivity",
         type=int,
-        default=10,
+        default=DEFAULT_BALL_SENSITIVITY,
         help="Hough circle sensitivity for ball detection. smaller values detect more candidates",
     )
     parser.add_argument(
         "--pixel-size",
         type=float,
-        default=0.242,
+        default=DEFAULT_PIXEL_SIZE_MM,
         help="pixel size in millimeters",
     )
     parser.add_argument(

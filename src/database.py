@@ -176,39 +176,6 @@ def upsert_setup(connection: sqlite3.Connection, setup: AnalysisSetup) -> int:
         "SELECT id FROM setups WHERE name = ?",
         (setup.name,),
     ).fetchone()
-    insert_values = (
-        setup.name,
-        setup.gantry_angle,
-        setup.collimator_angle,
-        setup.couch_angle,
-        setup.dx_positive_label,
-        setup.dx_negative_label,
-        setup.dy_positive_label,
-        setup.dy_negative_label,
-        setup.field_size_px,
-        setup.target_size_px,
-        setup.pixel_size_mm,
-        setup.beam_threshold,
-        setup.ball_sensitivity,
-        now,
-        now,
-    )
-    update_values = (
-        setup.name,
-        setup.gantry_angle,
-        setup.collimator_angle,
-        setup.couch_angle,
-        setup.dx_positive_label,
-        setup.dx_negative_label,
-        setup.dy_positive_label,
-        setup.dy_negative_label,
-        setup.field_size_px,
-        setup.target_size_px,
-        setup.pixel_size_mm,
-        setup.beam_threshold,
-        setup.ball_sensitivity,
-        now,
-    )
     if row is None:
         cursor = connection.execute(
             """
@@ -232,10 +199,10 @@ def upsert_setup(connection: sqlite3.Connection, setup: AnalysisSetup) -> int:
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             """,
-            insert_values,
+            setup_core_values(setup) + (now, now),
         )
         return int(cursor.lastrowid)
-    setup_id = int(row["id"] if isinstance(row, sqlite3.Row) else row[0])
+    setup_id = row_id(row)
     connection.execute(
         """
         UPDATE setups
@@ -256,9 +223,31 @@ def upsert_setup(connection: sqlite3.Connection, setup: AnalysisSetup) -> int:
             is_active = 1
         WHERE id = ?
         """,
-        update_values + (setup_id,),
+        setup_core_values(setup) + (now, setup_id),
     )
     return setup_id
+
+
+def setup_core_values(setup: AnalysisSetup) -> tuple[object, ...]:
+    return (
+        setup.name,
+        setup.gantry_angle,
+        setup.collimator_angle,
+        setup.couch_angle,
+        setup.dx_positive_label,
+        setup.dx_negative_label,
+        setup.dy_positive_label,
+        setup.dy_negative_label,
+        setup.field_size_px,
+        setup.target_size_px,
+        setup.pixel_size_mm,
+        setup.beam_threshold,
+        setup.ball_sensitivity,
+    )
+
+
+def row_id(row: sqlite3.Row | tuple[object, ...]) -> int:
+    return int(row["id"] if isinstance(row, sqlite3.Row) else row[0])
 
 
 def update_setup_by_id(
@@ -293,23 +282,7 @@ def update_setup_by_id(
             is_active = 1
         WHERE id = ?
         """,
-        (
-            setup.name,
-            setup.gantry_angle,
-            setup.collimator_angle,
-            setup.couch_angle,
-            setup.dx_positive_label,
-            setup.dx_negative_label,
-            setup.dy_positive_label,
-            setup.dy_negative_label,
-            setup.field_size_px,
-            setup.target_size_px,
-            setup.pixel_size_mm,
-            setup.beam_threshold,
-            setup.ball_sensitivity,
-            now,
-            setup_id,
-        ),
+        setup_core_values(setup) + (now, setup_id),
     )
 
 
@@ -434,7 +407,7 @@ def upsert_setup_preset(
         )
         preset_id = int(cursor.lastrowid)
     else:
-        preset_id = int(row["id"] if isinstance(row, sqlite3.Row) else row[0])
+        preset_id = row_id(row)
         connection.execute(
             """
             UPDATE setup_presets
@@ -444,6 +417,15 @@ def upsert_setup_preset(
             (preset.description, now, int(is_builtin), preset_id),
         )
 
+    replace_setup_preset_steps(connection, preset_id, preset)
+    return preset_id
+
+
+def replace_setup_preset_steps(
+    connection: sqlite3.Connection,
+    preset_id: int,
+    preset: SetupPreset,
+) -> None:
     connection.execute("DELETE FROM setup_steps WHERE preset_id = ?", (preset_id,))
     setup_ids = [
         upsert_setup(connection, setup)
@@ -467,7 +449,6 @@ def upsert_setup_preset(
             for index, setup_id in enumerate(setup_ids, start=1)
         ],
     )
-    return preset_id
 
 
 def create_session(
@@ -515,7 +496,7 @@ def get_or_create_machine(
         (name,),
     ).fetchone()
     if row is not None:
-        machine_id = int(row["id"] if isinstance(row, sqlite3.Row) else row[0])
+        machine_id = row_id(row)
         connection.execute(
             """
             UPDATE machines
@@ -629,8 +610,10 @@ def list_setup_steps(
 def metadata_for_preset(
     connection: sqlite3.Connection,
     preset_name: str,
-    image_count: int,
+    image_count: int | None = None,
 ) -> list[AnalysisMetadata]:
+    # Kept for CLI/test compatibility; presets define the returned metadata count.
+    _ = image_count
     preset = get_setup_preset(connection, preset_name)
     if preset is None:
         rows = list_setup_presets(connection)
@@ -638,27 +621,28 @@ def metadata_for_preset(
         raise ValueError(f"unknown preset: {preset_name}. available: {available}")
 
     steps = list_setup_steps(connection, int(preset["id"]))
-    return [
-        AnalysisMetadata(
-            gantry_angle=step["gantry_angle"],
-            collimator_angle=step["collimator_angle"],
-            couch_angle=step["couch_angle"],
-            note=step["label"],
-            x_axis_label=step["x_axis_label"],
-            y_axis_label=step["y_axis_label"],
-            dx_positive_label=step["dx_positive_label"],
-            dx_negative_label=step["dx_negative_label"],
-            dy_positive_label=step["dy_positive_label"],
-            dy_negative_label=step["dy_negative_label"],
-            x_inverted=bool(step["x_inverted"]),
-            beam_size_px=step["beam_size_px"],
-            target_size_px=step["target_size_px"],
-            pixel_size_mm=step["pixel_size_mm"],
-            beam_threshold=step["beam_threshold"],
-            ball_sensitivity=step["ball_sensitivity"],
-        )
-        for step in steps
-    ]
+    return [metadata_from_setup_step(step) for step in steps]
+
+
+def metadata_from_setup_step(step: sqlite3.Row) -> AnalysisMetadata:
+    return AnalysisMetadata(
+        gantry_angle=step["gantry_angle"],
+        collimator_angle=step["collimator_angle"],
+        couch_angle=step["couch_angle"],
+        note=step["label"],
+        x_axis_label=step["x_axis_label"],
+        y_axis_label=step["y_axis_label"],
+        dx_positive_label=step["dx_positive_label"],
+        dx_negative_label=step["dx_negative_label"],
+        dy_positive_label=step["dy_positive_label"],
+        dy_negative_label=step["dy_negative_label"],
+        x_inverted=bool(step["x_inverted"]),
+        beam_size_px=step["beam_size_px"],
+        target_size_px=step["target_size_px"],
+        pixel_size_mm=step["pixel_size_mm"],
+        beam_threshold=step["beam_threshold"],
+        ball_sensitivity=step["ball_sensitivity"],
+    )
 
 
 def save_analysis_results(

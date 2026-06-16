@@ -20,8 +20,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core import Analysis, AnalysisParameters
-from database import connect_database, get_setting, init_db, set_setting, upsert_setup
+from core import (
+    Analysis,
+    AnalysisParameters,
+    DEFAULT_BALL_SENSITIVITY,
+    DEFAULT_BEAM_THRESHOLD,
+    DEFAULT_PIXEL_SIZE_MM,
+)
+from database import (
+    connect_database,
+    get_setting,
+    init_db,
+    replace_setup_preset_steps,
+    set_setting,
+)
 from gui_config import (
     DEFAULT_DB_PATH,
     DEFAULT_OK_THRESHOLD_MM,
@@ -324,21 +336,42 @@ def parse_datetime_or_none(value: str) -> datetime | None:
 
 
 def analysis_setup_from_row(row) -> AnalysisSetup:
+    keys = row.keys()
     return AnalysisSetup(
-        name=row["name"],
+        name=row["name"] if "name" in keys else row["label"],
         gantry_angle=float(row["gantry_angle"]),
         collimator_angle=float(row["collimator_angle"]),
         couch_angle=float(row["couch_angle"]),
-        dx_positive_label=row["dx_positive_label"] if "dx_positive_label" in row.keys() else "+dx",
-        dx_negative_label=row["dx_negative_label"] if "dx_negative_label" in row.keys() else "-dx",
-        dy_positive_label=row["dy_positive_label"] if "dy_positive_label" in row.keys() else "+dy",
-        dy_negative_label=row["dy_negative_label"] if "dy_negative_label" in row.keys() else "-dy",
-        field_size_px=row["field_size_px"],
-        target_size_px=row["target_size_px"],
-        pixel_size_mm=float(row["pixel_size_mm"]),
-        beam_threshold=int(row["beam_threshold"]),
-        ball_sensitivity=int(row["ball_sensitivity"]),
+        dx_positive_label=row["dx_positive_label"] if "dx_positive_label" in keys else "+dx",
+        dx_negative_label=row["dx_negative_label"] if "dx_negative_label" in keys else "-dx",
+        dy_positive_label=row["dy_positive_label"] if "dy_positive_label" in keys else "+dy",
+        dy_negative_label=row["dy_negative_label"] if "dy_negative_label" in keys else "-dy",
+        field_size_px=setup_field_size_px(row, keys),
+        target_size_px=row["target_size_px"] if "target_size_px" in keys else None,
+        pixel_size_mm=(
+            float(row["pixel_size_mm"])
+            if "pixel_size_mm" in keys
+            else DEFAULT_PIXEL_SIZE_MM
+        ),
+        beam_threshold=(
+            int(row["beam_threshold"])
+            if "beam_threshold" in keys
+            else DEFAULT_BEAM_THRESHOLD
+        ),
+        ball_sensitivity=(
+            int(row["ball_sensitivity"])
+            if "ball_sensitivity" in keys
+            else DEFAULT_BALL_SENSITIVITY
+        ),
     )
+
+
+def setup_field_size_px(row, keys) -> int | None:
+    if "field_size_px" in keys:
+        return row["field_size_px"]
+    if "beam_size_px" in keys:
+        return row["beam_size_px"]
+    return None
 
 
 def plan_item_with_setup(
@@ -396,29 +429,7 @@ def update_setup_preset_by_id(connection, preset_id: int, preset: SetupPreset) -
         """,
         (preset.name, preset.description, now, preset_id),
     )
-    connection.execute("DELETE FROM setup_steps WHERE preset_id = ?", (preset_id,))
-    setup_ids = [
-        upsert_setup(connection, setup)
-        for setup in preset.setups
-    ]
-    connection.executemany(
-        """
-        INSERT INTO setup_steps (
-            preset_id,
-            step_order,
-            setup_id
-        )
-        VALUES (?, ?, ?)
-        """,
-        [
-            (
-                preset_id,
-                index,
-                setup_id,
-            )
-            for index, setup_id in enumerate(setup_ids, start=1)
-        ],
-    )
+    replace_setup_preset_steps(connection, preset_id, preset)
 
 
 def same_setup_angles(left: AnalysisPlanItem, right: AnalysisPlanItem) -> bool:
@@ -462,9 +473,21 @@ def report_point_from_row(row) -> ReportPoint:
         collimator_angle=row["collimator_angle"],
         couch_angle=row["couch_angle"],
         image_path=row["image_path"] if "image_path" in keys else "",
-        pixel_size_mm=float(row["pixel_size_mm"]) if "pixel_size_mm" in keys else 0.242,
-        beam_threshold=int(row["beam_threshold"]) if "beam_threshold" in keys else 0,
-        ball_sensitivity=int(row["ball_sensitivity"]) if "ball_sensitivity" in keys else 10,
+        pixel_size_mm=(
+            float(row["pixel_size_mm"])
+            if "pixel_size_mm" in keys
+            else DEFAULT_PIXEL_SIZE_MM
+        ),
+        beam_threshold=(
+            int(row["beam_threshold"])
+            if "beam_threshold" in keys
+            else DEFAULT_BEAM_THRESHOLD
+        ),
+        ball_sensitivity=(
+            int(row["ball_sensitivity"])
+            if "ball_sensitivity" in keys
+            else DEFAULT_BALL_SENSITIVITY
+        ),
         beam_size_px=row["beam_size_px"] if "beam_size_px" in keys else None,
         target_size_px=row["target_size_px"] if "target_size_px" in keys else None,
         x_axis_label=row["x_axis_label"] if "x_axis_label" in keys else "",

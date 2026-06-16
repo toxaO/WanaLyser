@@ -42,6 +42,9 @@ from setups import AnalysisSetup
 from core import (
     Analysis,
     AnalysisParameters,
+    DEFAULT_BALL_SENSITIVITY,
+    DEFAULT_BEAM_THRESHOLD,
+    DEFAULT_PIXEL_SIZE_MM,
     analyze_image,
     list_images,
     save_debug_output,
@@ -1526,21 +1529,7 @@ class DailyTab(AnalysisTab):
         finally:
             connection.close()
         return [
-            AnalysisSetup(
-                name=step["label"],
-                gantry_angle=float(step["gantry_angle"]),
-                collimator_angle=float(step["collimator_angle"]),
-                couch_angle=float(step["couch_angle"]),
-                dx_positive_label=step["dx_positive_label"],
-                dx_negative_label=step["dx_negative_label"],
-                dy_positive_label=step["dy_positive_label"],
-                dy_negative_label=step["dy_negative_label"],
-                field_size_px=step["beam_size_px"],
-                target_size_px=step["target_size_px"],
-                pixel_size_mm=float(step["pixel_size_mm"]),
-                beam_threshold=int(step["beam_threshold"]),
-                ball_sensitivity=int(step["ball_sensitivity"]),
-            )
+            analysis_setup_from_row(step)
             for step in steps
         ]
 
@@ -2565,7 +2554,21 @@ class ManageTab(QWidget):
         row = self.setup_table.rowCount()
         self.loading_setups = True
         self.setup_table.insertRow(row)
-        values = ["", "0", "0", "0", "+dx", "-dx", "+dy", "-dy", "auto", "auto", "0.242", "0", "10"]
+        values = [
+            "",
+            "0",
+            "0",
+            "0",
+            "+dx",
+            "-dx",
+            "+dy",
+            "-dy",
+            "auto",
+            "auto",
+            value_text(DEFAULT_PIXEL_SIZE_MM),
+            str(DEFAULT_BEAM_THRESHOLD),
+            str(DEFAULT_BALL_SENSITIVITY),
+        ]
         for column, value in enumerate(values):
             self.setup_table.setItem(row, column, QTableWidgetItem(value))
         self.loading_setups = False
@@ -2654,9 +2657,9 @@ class ManageTab(QWidget):
                 dy_negative_label=table_text(self.setup_table, row, 7).strip() or "-dy",
                 field_size_px=optional_int_text(table_text(self.setup_table, row, 8)),
                 target_size_px=optional_int_text(table_text(self.setup_table, row, 9)),
-                pixel_size_mm=float(table_text(self.setup_table, row, 10) or 0.242),
-                beam_threshold=int(float(table_text(self.setup_table, row, 11) or 0)),
-                ball_sensitivity=int(float(table_text(self.setup_table, row, 12) or 10)),
+                pixel_size_mm=float(table_text(self.setup_table, row, 10) or DEFAULT_PIXEL_SIZE_MM),
+                beam_threshold=int(float(table_text(self.setup_table, row, 11) or DEFAULT_BEAM_THRESHOLD)),
+                ball_sensitivity=int(float(table_text(self.setup_table, row, 12) or DEFAULT_BALL_SENSITIVITY)),
             )
         except ValueError as exc:
             show_error(self, "Setupエラー", ValueError(f"{row + 1}行目の数値を確認してください。\n{exc}"))

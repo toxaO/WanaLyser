@@ -10,7 +10,13 @@ import cv2
 from PySide6.QtCore import QLineF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen, QPixmap
 
-from core import AnalysisParameters, analyze_image
+from core import (
+    AnalysisParameters,
+    DEFAULT_BALL_SENSITIVITY,
+    DEFAULT_BEAM_THRESHOLD,
+    DEFAULT_PIXEL_SIZE_MM,
+    analyze_image,
+)
 from database import connect_database, init_db
 
 
@@ -26,9 +32,9 @@ class ReportPoint:
     collimator_angle: float | None
     couch_angle: float | None
     image_path: str = ""
-    pixel_size_mm: float = 0.242
-    beam_threshold: int = 0
-    ball_sensitivity: int = 10
+    pixel_size_mm: float = DEFAULT_PIXEL_SIZE_MM
+    beam_threshold: int = DEFAULT_BEAM_THRESHOLD
+    ball_sensitivity: int = DEFAULT_BALL_SENSITIVITY
     beam_size_px: int | None = None
     target_size_px: int | None = None
     x_axis_label: str = ""
