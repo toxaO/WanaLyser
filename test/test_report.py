@@ -19,10 +19,29 @@ from database import (  # noqa: E402
     init_db,
     save_analysis_results,
 )
-from report import generate_pdf_report  # noqa: E402
+from report import ReportPoint, axis_labels, generate_pdf_report  # noqa: E402
 
 
 class ReportTest(unittest.TestCase):
+    def test_axis_labels_can_use_series_name(self) -> None:
+        points = [
+            ReportPoint(
+                analyzed_at="2026-06-16T10:30",
+                image_name="a.bmp",
+                setup_label="setup_a",
+                dx_mm=0.1,
+                dy_mm=0.2,
+                distance_mm=0.3,
+                gantry_angle=0.0,
+                collimator_angle=0.0,
+                couch_angle=0.0,
+                series_name="set_01",
+            )
+        ]
+
+        self.assertEqual(axis_labels(points, "series"), ["set_01"])
+        self.assertEqual(axis_labels(points, "date"), ["06/16"])
+
     def test_generate_pdf_report(self) -> None:
         analyses = [
             analyze_image(ROOT / "sample" / "size" / "2.bmp"),

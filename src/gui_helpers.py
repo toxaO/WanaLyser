@@ -244,12 +244,12 @@ def load_recent_saved_series(
             SELECT
                 sessions.id AS session_id,
                 sessions.started_at,
+                sessions.series_name,
                 sessions.inspection_type,
-                COALESCE(machines.name, sessions.machine_name) AS machine_name
+                sessions.machine_name
             FROM sessions
-            LEFT JOIN machines ON machines.id = sessions.machine_id
             WHERE sessions.inspection_type = 'daily'
-              AND (? IS NULL OR COALESCE(machines.name, sessions.machine_name) = ?)
+              AND (? IS NULL OR sessions.machine_name = ?)
               AND sessions.started_at >= ?
               AND sessions.started_at <= ?
             ORDER BY sessions.started_at DESC, sessions.id DESC
@@ -270,6 +270,7 @@ def load_recent_saved_series(
                 """
                 SELECT
                     analysis_results.analyzed_at,
+                    sessions.series_name,
                     analysis_results.image_name,
                     analysis_results.image_path,
                     analysis_results.note AS setup_label,
@@ -302,7 +303,7 @@ def load_recent_saved_series(
             ).fetchall()
             histories.append(
                 AnalysisSeries(
-                    name=series_display_name(session["started_at"]),
+                    name=session["series_name"] or series_display_name(session["started_at"]),
                     plan=[],
                     analyses=[],
                     inspection_type=session["inspection_type"],
@@ -424,7 +425,7 @@ def update_setup_preset_by_id(connection, preset_id: int, preset: SetupPreset) -
     connection.execute(
         """
         UPDATE setup_presets
-        SET name = ?, description = ?, updated_at = ?, is_builtin = 0, is_active = 1
+        SET name = ?, description = ?, updated_at = ?, is_builtin = 0
         WHERE id = ?
         """,
         (preset.name, preset.description, now, preset_id),
@@ -498,6 +499,7 @@ def report_point_from_row(row) -> ReportPoint:
         dy_negative_label=row["dy_negative_label"] if "dy_negative_label" in keys and row["dy_negative_label"] else "-dy",
         x_inverted=bool(row["x_inverted"]) if "x_inverted" in keys else False,
         inspection_type=row["inspection_type"] if "inspection_type" in keys else "",
+        series_name=row["series_name"] if "series_name" in keys and row["series_name"] else "",
     )
 
 

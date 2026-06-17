@@ -39,27 +39,18 @@ def connect_database(path: str | Path) -> sqlite3.Connection:
 
 
 def init_db(connection: sqlite3.Connection) -> None:
+    reset_legacy_schema(connection)
     connection.executescript(
         """
         PRAGMA foreign_keys = ON;
 
-        CREATE TABLE IF NOT EXISTS machines (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            note TEXT
-        );
-
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             started_at TEXT NOT NULL,
+            series_name TEXT,
             inspection_type TEXT NOT NULL,
-            machine_id INTEGER,
-            machine_name TEXT,
-            note TEXT,
-            FOREIGN KEY(machine_id) REFERENCES machines(id)
+            machine_name TEXT NOT NULL,
+            note TEXT
         );
 
         CREATE TABLE IF NOT EXISTS analysis_results (
@@ -95,7 +86,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             succeeded INTEGER NOT NULL,
             failure_reason TEXT,
             note TEXT,
-            FOREIGN KEY(session_id) REFERENCES sessions(id)
+            FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS setup_presets (
@@ -104,8 +95,7 @@ def init_db(connection: sqlite3.Connection) -> None:
             description TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            is_builtin INTEGER NOT NULL DEFAULT 0,
-            is_active INTEGER NOT NULL DEFAULT 1
+            is_builtin INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS setups (
@@ -149,22 +139,74 @@ def init_db(connection: sqlite3.Connection) -> None:
             ON analysis_results(analyzed_at);
         CREATE INDEX IF NOT EXISTS idx_analysis_results_angles
             ON analysis_results(gantry_angle, collimator_angle, couch_angle);
-        CREATE INDEX IF NOT EXISTS idx_sessions_machine_id
-            ON sessions(machine_id);
+        CREATE INDEX IF NOT EXISTS idx_sessions_machine_name
+            ON sessions(machine_name);
         """
     )
     seed_builtin_setups(connection)
     seed_builtin_presets(connection)
-    seed_default_machines(connection)
+    seed_default_machine(connection)
     connection.commit()
 
 
+def reset_legacy_schema(connection: sqlite3.Connection) -> None:
+    session_columns = table_columns(connection, "sessions")
+    preset_columns = table_columns(connection, "setup_presets")
+    legacy = (
+        table_exists(connection, "machines")
+        or "machine_id" in session_columns
+        or "is_active" in preset_columns
+    )
+    if not legacy:
+        return
+    if table_exists(connection, "app_settings"):
+        connection.execute("DELETE FROM app_settings WHERE key = ?", ("builtin_presets_seeded",))
+    connection.executescript(
+        """
+        PRAGMA foreign_keys = OFF;
+        DROP TABLE IF EXISTS analysis_results;
+        DROP TABLE IF EXISTS sessions;
+        DROP TABLE IF EXISTS machines;
+        DROP TABLE IF EXISTS setup_steps;
+        DROP TABLE IF EXISTS setup_presets;
+        PRAGMA foreign_keys = ON;
+        """
+    )
+
+
+def table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    if not table_exists(connection, table_name):
+        return set()
+    return {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+
+def table_has_rows(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(f"SELECT 1 FROM {table_name} LIMIT 1").fetchone()
+    return row is not None
+
+
 def seed_builtin_presets(connection: sqlite3.Connection) -> None:
+    if get_setting(connection, "builtin_presets_seeded") == "1":
+        return
     for preset in BUILTIN_PRESETS:
         upsert_setup_preset(connection, preset, is_builtin=True)
+    set_setting(connection, "builtin_presets_seeded", "1")
 
 
 def seed_builtin_setups(connection: sqlite3.Connection) -> None:
+    if table_has_rows(connection, "setups"):
+        return
     for preset in BUILTIN_PRESETS:
         for setup in preset.setups:
             upsert_setup(connection, setup)
@@ -331,22 +373,12 @@ def deactivate_setup(connection: sqlite3.Connection, setup_id: int) -> None:
     )
 
 
-def seed_default_machines(connection: sqlite3.Connection) -> None:
-    get_or_create_machine(connection, "machine1")
-    get_or_create_machine(connection, "machine2")
-    connection.execute(
-        """
-        UPDATE machines
-        SET is_active = 0, updated_at = ?
-        WHERE name IN ('1', '2')
-          AND id NOT IN (
-              SELECT machine_id FROM sessions WHERE machine_id IS NOT NULL
-          )
-        """,
-        (datetime.now().isoformat(timespec="seconds"),),
-    )
-    default_machine = get_setting(connection, "default_machine_name")
-    if default_machine is None or default_machine in {"1", "2"}:
+def delete_setup_preset(connection: sqlite3.Connection, preset_id: int) -> None:
+    connection.execute("DELETE FROM setup_presets WHERE id = ?", (preset_id,))
+
+
+def seed_default_machine(connection: sqlite3.Connection) -> None:
+    if get_setting(connection, "default_machine_name") is None:
         set_setting(connection, "default_machine_name", "machine1")
 
 
@@ -376,8 +408,10 @@ def get_default_machine_name(connection: sqlite3.Connection) -> str:
 
 
 def set_default_machine_name(connection: sqlite3.Connection, machine_name: str) -> None:
-    get_or_create_machine(connection, machine_name)
-    set_setting(connection, "default_machine_name", machine_name)
+    name = machine_name.strip()
+    if not name:
+        raise ValueError("装置名を入力してください。")
+    set_setting(connection, "default_machine_name", name)
 
 
 def upsert_setup_preset(
@@ -398,10 +432,9 @@ def upsert_setup_preset(
                 description,
                 created_at,
                 updated_at,
-                is_builtin,
-                is_active
+                is_builtin
             )
-            VALUES (?, ?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (preset.name, preset.description, now, now, int(is_builtin)),
         )
@@ -411,7 +444,7 @@ def upsert_setup_preset(
         connection.execute(
             """
             UPDATE setup_presets
-            SET description = ?, updated_at = ?, is_builtin = ?, is_active = 1
+            SET description = ?, updated_at = ?, is_builtin = ?
             WHERE id = ?
             """,
             (preset.description, now, int(is_builtin), preset_id),
@@ -457,17 +490,18 @@ def create_session(
     machine_name: str | None = None,
     note: str | None = None,
     started_at: datetime | None = None,
+    series_name: str | None = None,
 ) -> int:
     started_at = started_at or datetime.now()
-    machine_id = None
-    if machine_name is not None:
-        machine_id = get_or_create_machine(connection, machine_name)
+    normalized_machine_name = (machine_name or get_default_machine_name(connection)).strip()
+    if not normalized_machine_name:
+        raise ValueError("装置名を入力してください。")
     cursor = connection.execute(
         """
         INSERT INTO sessions (
             started_at,
+            series_name,
             inspection_type,
-            machine_id,
             machine_name,
             note
         )
@@ -475,9 +509,9 @@ def create_session(
         """,
         (
             started_at.isoformat(timespec="seconds"),
+            series_name,
             inspection_type,
-            machine_id,
-            machine_name,
+            normalized_machine_name,
             note,
         ),
     )
@@ -485,54 +519,86 @@ def create_session(
     return int(cursor.lastrowid)
 
 
-def get_or_create_machine(
+def update_session_series(
     connection: sqlite3.Connection,
-    name: str,
-    note: str | None = None,
-) -> int:
-    now = datetime.now().isoformat(timespec="seconds")
-    row = connection.execute(
-        "SELECT id FROM machines WHERE name = ?",
-        (name,),
-    ).fetchone()
-    if row is not None:
-        machine_id = row_id(row)
-        connection.execute(
-            """
-            UPDATE machines
-            SET updated_at = ?, is_active = 1
-            WHERE id = ?
-            """,
-            (now, machine_id),
-        )
-        return machine_id
-
-    cursor = connection.execute(
-        """
-        INSERT INTO machines (name, created_at, updated_at, is_active, note)
-        VALUES (?, ?, ?, 1, ?)
-        """,
-        (name, now, now, note),
+    session_id: int,
+    started_at: str | None = None,
+    series_name: str | None = None,
+) -> None:
+    assignments: list[str] = []
+    values: list[object] = []
+    if started_at is not None:
+        assignments.append("started_at = ?")
+        values.append(started_at)
+    if series_name is not None:
+        assignments.append("series_name = ?")
+        values.append(series_name)
+    if not assignments:
+        return
+    values.append(session_id)
+    connection.execute(
+        f"UPDATE sessions SET {', '.join(assignments)} WHERE id = ?",
+        values,
     )
-    return int(cursor.lastrowid)
+    if started_at is not None:
+        connection.execute(
+            "UPDATE analysis_results SET analyzed_at = ? WHERE session_id = ?",
+            (started_at, session_id),
+        )
 
 
 def list_machines(connection: sqlite3.Connection) -> list[sqlite3.Row]:
-    cursor = connection.execute(
+    default_machine = get_default_machine_name(connection)
+    rows = list(connection.execute(
         """
         SELECT
-            id,
-            name,
-            created_at,
-            updated_at,
-            is_active,
-            note
-        FROM machines
-        WHERE is_active = 1
-        ORDER BY name
+            TRIM(machine_name) AS name,
+            COUNT(*) AS result_count
+        FROM sessions
+        WHERE TRIM(machine_name) != ''
+        GROUP BY TRIM(machine_name)
+        ORDER BY TRIM(machine_name)
         """
+    ).fetchall())
+    if default_machine and default_machine not in {row["name"] for row in rows}:
+        default_row = connection.execute(
+            """
+            SELECT ? AS name, 0 AS result_count
+            """,
+            (default_machine,),
+        ).fetchone()
+        if default_row is not None:
+            rows.append(default_row)
+            rows.sort(key=lambda row: row["name"])
+    return rows
+
+
+def count_machine_results(connection: sqlite3.Connection, machine_name: str) -> int:
+    row = connection.execute(
+        "SELECT COUNT(*) AS count FROM sessions WHERE machine_name = ?",
+        (machine_name.strip(),),
+    ).fetchone()
+    return int(row["count"] if isinstance(row, sqlite3.Row) else row[0])
+
+
+def rename_machine_results(connection: sqlite3.Connection, old_name: str, new_name: str) -> None:
+    old = old_name.strip()
+    new = new_name.strip()
+    if not old or not new:
+        raise ValueError("装置名を入力してください。")
+    connection.execute(
+        "UPDATE sessions SET machine_name = ? WHERE machine_name = ?",
+        (new, old),
     )
-    return list(cursor.fetchall())
+    if get_default_machine_name(connection) == old:
+        set_default_machine_name(connection, new)
+
+
+def delete_machine_results(connection: sqlite3.Connection, machine_name: str) -> None:
+    name = machine_name.strip()
+    if not name:
+        raise ValueError("削除する装置名を選択してください。")
+    connection.execute("DELETE FROM sessions WHERE machine_name = ?", (name,))
 
 
 def list_setup_presets(connection: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -543,12 +609,10 @@ def list_setup_presets(connection: sqlite3.Connection) -> list[sqlite3.Row]:
             setup_presets.name,
             setup_presets.description,
             setup_presets.is_builtin,
-            setup_presets.is_active,
             COUNT(setup_steps.id) AS step_count
         FROM setup_presets
         LEFT JOIN setup_steps
             ON setup_steps.preset_id = setup_presets.id
-        WHERE setup_presets.is_active = 1
         GROUP BY setup_presets.id
         ORDER BY setup_presets.name
         """
@@ -562,9 +626,9 @@ def get_setup_preset(
 ) -> sqlite3.Row | None:
     return connection.execute(
         """
-        SELECT id, name, description, is_builtin, is_active
+        SELECT id, name, description, is_builtin
         FROM setup_presets
-        WHERE name = ? AND is_active = 1
+        WHERE name = ?
         """,
         (name,),
     ).fetchone()
@@ -780,7 +844,7 @@ def list_analysis_results(
         SELECT
             analysis_results.id,
             sessions.inspection_type,
-            COALESCE(machines.name, sessions.machine_name) AS machine_name,
+            sessions.machine_name,
             analysis_results.analyzed_at,
             analysis_results.image_name,
             analysis_results.gantry_angle,
@@ -792,7 +856,6 @@ def list_analysis_results(
             analysis_results.succeeded
         FROM analysis_results
         JOIN sessions ON sessions.id = analysis_results.session_id
-        LEFT JOIN machines ON machines.id = sessions.machine_id
         ORDER BY analysis_results.analyzed_at DESC, analysis_results.id DESC
         LIMIT ?
         """,

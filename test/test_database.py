@@ -14,13 +14,17 @@ from database import (  # noqa: E402
     AnalysisMetadata,
     connect_database,
     create_session,
+    delete_machine_results,
+    delete_setup_preset,
     get_default_machine_name,
-    get_or_create_machine,
     init_db,
     list_analysis_results,
     list_machines,
+    list_setup_presets,
+    rename_machine_results,
     save_analysis_results,
     set_default_machine_name,
+    update_session_series,
 )
 
 
@@ -77,39 +81,122 @@ class DatabaseTest(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_machine_is_created_and_reused(self) -> None:
+    def test_machine_names_are_listed_from_sessions_and_default(self) -> None:
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
         try:
             init_db(connection)
-            first_id = get_or_create_machine(connection, "linac-a")
-            second_id = get_or_create_machine(connection, "linac-a")
-            self.assertEqual(first_id, second_id)
-
             create_session(
                 connection,
                 inspection_type="daily",
                 machine_name="linac-a",
             )
-            row = connection.execute(
-                """
-                SELECT sessions.machine_id, machines.name
-                FROM sessions
-                JOIN machines ON machines.id = sessions.machine_id
-                """
-            ).fetchone()
-            self.assertEqual(row["machine_id"], first_id)
-            self.assertEqual(row["name"], "linac-a")
 
             machines = list_machines(connection)
             machine_names = [machine["name"] for machine in machines]
             self.assertIn("machine1", machine_names)
-            self.assertIn("machine2", machine_names)
             self.assertIn("linac-a", machine_names)
             self.assertEqual(get_default_machine_name(connection), "machine1")
 
             set_default_machine_name(connection, "linac-a")
             self.assertEqual(get_default_machine_name(connection), "linac-a")
+        finally:
+            connection.close()
+
+    def test_machine_results_can_be_renamed(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            init_db(connection)
+            create_session(connection, inspection_type="daily", machine_name="typo")
+            set_default_machine_name(connection, "typo")
+            rename_machine_results(connection, "typo", "VERSA1")
+            connection.commit()
+
+            machine_names = [machine["name"] for machine in list_machines(connection)]
+            self.assertIn("VERSA1", machine_names)
+            self.assertNotIn("typo", machine_names)
+            self.assertEqual(get_default_machine_name(connection), "VERSA1")
+        finally:
+            connection.close()
+
+    def test_machine_results_can_be_deleted(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            init_db(connection)
+            create_session(connection, inspection_type="daily", machine_name="delete-me")
+            delete_machine_results(connection, "delete-me")
+            connection.commit()
+            machine_names = [machine["name"] for machine in list_machines(connection)]
+            self.assertNotIn("delete-me", machine_names)
+        finally:
+            connection.close()
+
+    def test_builtin_presets_are_seeded_only_once(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            init_db(connection)
+            presets = list_setup_presets(connection)
+            self.assertTrue(presets)
+            original_name = presets[0]["name"]
+            connection.execute(
+                "UPDATE setup_presets SET name = ? WHERE id = ?",
+                ("renamed-preset", int(presets[0]["id"])),
+            )
+            connection.commit()
+
+            init_db(connection)
+            preset_names = [preset["name"] for preset in list_setup_presets(connection)]
+            self.assertIn("renamed-preset", preset_names)
+            self.assertNotIn(original_name, preset_names)
+        finally:
+            connection.close()
+
+    def test_preset_can_be_deleted(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            init_db(connection)
+            preset = list_setup_presets(connection)[0]
+            delete_setup_preset(connection, int(preset["id"]))
+            preset_names = [row["name"] for row in list_setup_presets(connection)]
+            self.assertNotIn(preset["name"], preset_names)
+        finally:
+            connection.close()
+
+    def test_session_series_metadata_can_be_updated(self) -> None:
+        analysis = analyze_image(ROOT / "sample" / "size" / "2.bmp")
+
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        try:
+            init_db(connection)
+            session_id = create_session(
+                connection,
+                inspection_type="daily",
+                series_name="set_01",
+            )
+            save_analysis_results(connection, session_id, [analysis])
+            update_session_series(
+                connection,
+                session_id,
+                started_at="2026-06-16T10:30",
+                series_name="morning_qc",
+            )
+            session = connection.execute(
+                "SELECT started_at, series_name FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+            result = connection.execute(
+                "SELECT analyzed_at FROM analysis_results WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+
+            self.assertEqual(session["started_at"], "2026-06-16T10:30")
+            self.assertEqual(session["series_name"], "morning_qc")
+            self.assertEqual(result["analyzed_at"], "2026-06-16T10:30")
         finally:
             connection.close()
 

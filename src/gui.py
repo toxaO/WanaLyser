@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import signal
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -22,12 +23,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QSpinBox,
     QTableWidget,
@@ -53,20 +53,24 @@ from database import (
     AnalysisMetadata,
     connect_database,
     create_session,
+    count_machine_results,
+    delete_machine_results,
+    delete_setup_preset,
     get_setup,
     get_setup_preset,
     get_default_machine_name,
     get_setting,
-    get_or_create_machine,
     init_db,
     deactivate_setup,
     list_setups,
     list_setup_presets,
     list_setup_steps,
     list_machines,
+    rename_machine_results,
     save_analysis_results,
     set_default_machine_name,
     set_setting,
+    update_session_series,
     update_setup_by_id,
     upsert_setup,
 )
@@ -198,6 +202,8 @@ class AnalysisTab(QWidget):
         self.show_inspection = show_inspection
         self.current_parameters = AnalysisParameters()
         self.updating_plan_table = False
+        self.updating_series_list = False
+        self.create_preview_series_on_plan_load = False
         self.suppress_plan_load = True
 
         layout = QVBoxLayout(self)
@@ -246,6 +252,7 @@ class AnalysisTab(QWidget):
         self.machine_combo.setEditable(True)
         self.machine_combo.setMinimumWidth(92)
         self.machine_combo.setMaximumWidth(130)
+        self.machine_combo.currentTextChanged.connect(self.machine_selection_changed)
         layout.addWidget(self.machine_combo)
 
         self.inspection_type = RoundedComboBox()
@@ -313,7 +320,8 @@ class AnalysisTab(QWidget):
         self.series_panel.setObjectName("SeriesPanel")
         self.series_panel.setFrameShape(QFrame.Shape.StyledPanel)
         self.series_panel.setFrameShadow(QFrame.Shadow.Plain)
-        self.series_panel.setFixedWidth(SERIES_PANEL_WIDTH if show_series_list else 0)
+        self.configure_series_panel_width(show_series_list)
+        self.series_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         series_layout = QVBoxLayout(self.series_panel)
         series_layout.setContentsMargins(8, 8, 8, 8)
         series_layout.setSpacing(6)
@@ -360,7 +368,19 @@ class AnalysisTab(QWidget):
         series_layout.addWidget(self.series_query_frame)
         self.series_count_query_widget.setVisible(show_series_list)
         self.series_date_query_widget.setVisible(False)
-        self.series_list = QListWidget()
+        self.series_list = QTableWidget(0, 2)
+        self.series_list.setHorizontalHeaderLabels(["Date", "Series"])
+        self.series_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.series_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.series_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.series_list.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.series_list.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.series_list.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked
+            | QTableWidget.EditTrigger.EditKeyPressed
+            | QTableWidget.EditTrigger.SelectedClicked
+        )
+        self.series_list.itemChanged.connect(self.series_item_changed)
         self.series_list.setVisible(show_series_list)
         series_layout.addWidget(self.series_list, stretch=1)
         self.save_series_button = QPushButton("Series Save")
@@ -378,7 +398,7 @@ class AnalysisTab(QWidget):
         self.remove_series_button.setVisible(show_series_list)
         self.remove_series_button.clicked.connect(self.remove_selected_series)
         series_layout.addWidget(self.remove_series_button)
-        layout.addWidget(self.series_panel)
+        layout.addWidget(self.series_panel, stretch=1)
 
         table_group = QFrame()
         table_group.setObjectName("AnalysisTablePanel")
@@ -413,8 +433,16 @@ class AnalysisTab(QWidget):
         table_button_row.addWidget(self.setup_review_button)
         table_button_row.addWidget(self.series_review_button)
         table_layout.addLayout(table_button_row)
-        layout.addWidget(table_group, stretch=1)
+        layout.addWidget(table_group, stretch=5)
         return group
+
+    def configure_series_panel_width(self, visible: bool) -> None:
+        if visible:
+            self.series_panel.setMinimumWidth(SERIES_PANEL_WIDTH)
+            self.series_panel.setMaximumWidth(SERIES_PANEL_WIDTH + 110)
+        else:
+            self.series_panel.setMinimumWidth(0)
+            self.series_panel.setMaximumWidth(0)
 
     def build_preview_group(self) -> QWidget:
         group = QWidget()
@@ -458,6 +486,9 @@ class AnalysisTab(QWidget):
     def save_selected_series(self) -> bool:
         return False
 
+    def series_item_changed(self, item: QTableWidgetItem) -> None:
+        return
+
     def delete_selected_simple_row(self) -> None:
         return
 
@@ -494,23 +525,39 @@ class AnalysisTab(QWidget):
             current_preset = self.preset_combo.currentText()
             self.preset_combo.clear()
             self.preset_combo.addItem("")
+            preset_names = [preset["name"] for preset in presets]
             for preset in presets:
                 self.preset_combo.addItem(preset["name"])
-            if current_preset:
+            if current_preset in preset_names:
                 self.preset_combo.setCurrentText(current_preset)
-            elif default_preset:
+            elif default_preset in preset_names:
                 self.preset_combo.setCurrentText(default_preset)
 
             current_machine = self.machine_combo.currentText()
             self.machine_combo.clear()
+            machine_names = [machine["name"] for machine in machines]
             for machine in machines:
                 self.machine_combo.addItem(machine["name"])
-            self.machine_combo.setCurrentText(current_machine or default_machine)
+            if current_machine in machine_names:
+                self.machine_combo.setCurrentText(current_machine)
+            elif default_machine in machine_names:
+                self.machine_combo.setCurrentText(default_machine)
+            elif machine_names:
+                self.machine_combo.setCurrentText(machine_names[0])
+            elif current_machine:
+                self.machine_combo.setCurrentText(current_machine)
         finally:
             self.loading_options = False
 
         if not self.suppress_plan_load:
             self.load_plan_preview()
+        self.update_save_button_state()
+
+    def machine_selection_changed(self, *_args) -> None:
+        if self.loading_options:
+            return
+        if hasattr(self, "load_recent_saved_series"):
+            self.load_recent_saved_series()
         self.update_save_button_state()
 
     def browse_images(self) -> None:
@@ -519,6 +566,7 @@ class AnalysisTab(QWidget):
             self.image_path.setText(path)
             self.input_default_path = path
             save_app_setting(INPUT_PATH_SETTING, path)
+            self.create_preview_series_on_plan_load = True
             self.load_plan_preview()
             self.update_save_button_state()
 
@@ -533,6 +581,7 @@ class AnalysisTab(QWidget):
         if text:
             self.input_default_path = text
             save_app_setting(INPUT_PATH_SETTING, text)
+        self.create_preview_series_on_plan_load = False
         self.load_plan_preview()
         self.update_save_button_state()
 
@@ -579,7 +628,7 @@ class AnalysisTab(QWidget):
         analyses = self.analyze_plan_with_progress(plan)
         started_at = datetime.now().isoformat(timespec="seconds")
         return AnalysisSeries(
-            name=series_display_name(started_at),
+            name=self.series_name(plan),
             plan=plan,
             analyses=analyses,
             inspection_type=self.inspection_type.currentText(),
@@ -696,7 +745,7 @@ class AnalysisTab(QWidget):
 
     def series_name(self, plan: list[AnalysisPlanItem]) -> str:
         image_dir = self.image_path_value().name or str(self.image_path_value())
-        return f"{image_dir} ({len(plan)} images)"
+        return image_dir
 
     def set_current_series(self, series: AnalysisSeries) -> None:
         self.current_series = series
@@ -845,15 +894,24 @@ class AnalysisTab(QWidget):
                 inspection_type=series.inspection_type,
                 machine_name=series.machine_name,
                 started_at=parse_datetime_or_none(series.started_at),
+                series_name=series.name,
             )
             save_analysis_results(connection, session_id, series.analyses, metadata)
+            if series.started_at:
+                update_session_series(connection, session_id, started_at=series.started_at, series_name=series.name)
+                connection.commit()
             return session_id
         finally:
             connection.close()
 
     def update_save_button_state(self) -> None:
         if hasattr(self, "save_button"):
-            self.save_button.setEnabled(self.current_series is not None and not self.current_series.saved)
+            can_save = (
+                self.current_series is not None
+                and not self.current_series.saved
+                and bool(self.current_series.analyses)
+            )
+            self.save_button.setEnabled(can_save)
         self.update_analyse_button_state()
 
     def update_analyse_button_state(self) -> None:
@@ -960,6 +1018,9 @@ class AnalysisTab(QWidget):
     def render_series(self, series: AnalysisSeries) -> None:
         if series.points and not series.analyses:
             self.render_persisted_series(series)
+            return
+        if series.plan and not series.analyses:
+            self.render_plan_preview(series.plan)
             return
         self.table.setRowCount(len(series.plan))
         for row, (plan_item, analysis) in enumerate(zip(series.plan, series.analyses)):
@@ -1199,6 +1260,7 @@ class AnalysisTab(QWidget):
                         dy_negative_label=plan_item.dy_negative_label or "-dy",
                         x_inverted=plan_item.x_inverted,
                         inspection_type=series.inspection_type,
+                        series_name=series.name,
                     )
                 )
                 grouped[label] = grouped[label][-10:]
@@ -1227,7 +1289,7 @@ class AnalysisTab(QWidget):
         return Path(self.output_path.text()).expanduser()
 
     def machine_name(self) -> str | None:
-        return self.machine_combo.currentText() or None
+        return self.machine_combo.currentText().strip() or None
 
     def log(self, message: str) -> None:
         self.log_output.append(message)
@@ -1255,8 +1317,8 @@ class DailyTab(AnalysisTab):
         self.setObjectName("AnalysePage")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.apply_mode_style()
-        self.series_list.currentRowChanged.connect(self.select_series)
-        self.series_panel.setFixedWidth(SERIES_PANEL_WIDTH)
+        self.series_list.currentCellChanged.connect(lambda row, _column, _previous_row, _previous_column: self.select_series(row))
+        self.configure_series_panel_width(True)
         self.series_list.setVisible(True)
         self.save_series_button.setVisible(True)
         self.remove_series_button.setVisible(True)
@@ -1294,7 +1356,7 @@ class DailyTab(AnalysisTab):
         self.reset_temporary_modes()
         if self.analysis_mode == "daily":
             self.inspection_type.setCurrentText("daily")
-            self.series_panel.setFixedWidth(SERIES_PANEL_WIDTH)
+            self.configure_series_panel_width(True)
             self.series_query_toggle.setVisible(True)
             self.series_list.setVisible(True)
             self.save_series_button.setVisible(True)
@@ -1382,7 +1444,7 @@ class DailyTab(AnalysisTab):
 
     def reset_temporary_modes(self) -> None:
         self.series.clear()
-        self.series_list.clear()
+        self.series_list.setRowCount(0)
         self.simple_series = AnalysisSeries(
             name="Test",
             plan=[],
@@ -1399,7 +1461,7 @@ class DailyTab(AnalysisTab):
         self.temp_mode_active = True
         self.inspection_type.setCurrentText("temporary")
         self.series_review_button.setEnabled(True)
-        self.series_panel.setFixedWidth(SERIES_PANEL_WIDTH)
+        self.configure_series_panel_width(True)
         self.series_query_toggle.setVisible(True)
         self.series_list.setVisible(True)
         self.remove_series_button.setVisible(True)
@@ -1420,7 +1482,7 @@ class DailyTab(AnalysisTab):
         self.save_series_button.setVisible(False)
         self.remove_series_button.setVisible(False)
         self.active_toggle_button.setVisible(False)
-        self.series_panel.setFixedWidth(0)
+        self.configure_series_panel_width(False)
         self.loaded_plan = []
         self.simple_series.plan = []
         self.simple_series.analyses = []
@@ -1434,9 +1496,16 @@ class DailyTab(AnalysisTab):
         if getattr(self, "analysis_mode", "daily") == "simple_test":
             self.append_simple_images_from_input()
             return
+        show_preview_series = self.create_preview_series_on_plan_load
+        self.create_preview_series_on_plan_load = False
         super().load_plan_preview()
         if hasattr(self, "series_list") and self.analysis_mode in ("daily", "set_test"):
-            self.series_list.setCurrentRow(-1)
+            if show_preview_series:
+                self.show_unanalyzed_series_for_loaded_plan()
+            else:
+                self.remove_unanalyzed_preview_series()
+                self.render_series_list()
+                self.set_series_current_row(-1)
 
     def analyze_clicked(self) -> None:
         if self.current_series is not None and self.current_series.source == "history":
@@ -1450,7 +1519,7 @@ class DailyTab(AnalysisTab):
         super().clear_analysis_table()
         if hasattr(self, "series_list"):
             self.series_list.blockSignals(True)
-            self.series_list.setCurrentRow(-1)
+            self.set_series_current_row(-1)
             self.series_list.blockSignals(False)
             self.update_series_buttons()
 
@@ -1538,12 +1607,37 @@ class DailyTab(AnalysisTab):
             self.current_series = series
             super().after_analysis(series)
             return
+        self.remove_unanalyzed_preview_series()
         self.series.insert(0, series)
         self.series = self.series[:10]
         self.render_series_list()
-        self.series_list.setCurrentRow(0)
+        self.set_series_current_row(0)
         self.update_series_buttons()
         self.log(f"解析シリーズに追加しました: {series.name}")
+
+    def remove_unanalyzed_preview_series(self) -> None:
+        self.series = [series for series in self.series if series.source != "preview"]
+
+    def show_unanalyzed_series_for_loaded_plan(self) -> None:
+        self.remove_unanalyzed_preview_series()
+        if not self.loaded_plan:
+            self.render_series_list()
+            self.set_series_current_row(-1)
+            return
+        series = AnalysisSeries(
+            name=self.series_name(self.loaded_plan),
+            plan=self.loaded_plan,
+            analyses=[],
+            inspection_type=self.inspection_type.currentText(),
+            machine_name=self.machine_name(),
+            saved=False,
+            started_at="",
+            source="preview",
+        )
+        self.series.insert(0, series)
+        self.current_series = series
+        self.render_series_list()
+        self.set_series_current_row(0)
 
     def render_simple_table(self) -> None:
         self.updating_plan_table = True
@@ -1663,8 +1757,9 @@ class DailyTab(AnalysisTab):
             return
         row = self.series_list.currentRow()
         has_selection = 0 <= row < len(self.series)
+        can_save = has_selection and bool(self.series[row].analyses) and not self.series[row].saved
         self.remove_series_button.setEnabled(has_selection)
-        self.save_series_button.setEnabled(has_selection)
+        self.save_series_button.setEnabled(can_save)
         self.active_toggle_button.setEnabled(has_selection)
         self.update_analyse_button_state()
 
@@ -1682,10 +1777,10 @@ class DailyTab(AnalysisTab):
             self.delete_saved_series(self.series[row])
             return
         removed = self.series.pop(row)
-        self.series_list.takeItem(row)
+        self.series_list.removeRow(row)
         if self.series:
             next_row = min(row, len(self.series) - 1)
-            self.series_list.setCurrentRow(next_row)
+            self.set_series_current_row(next_row)
         else:
             self.current_series = None
             self.render_plan_preview(self.loaded_plan)
@@ -1731,21 +1826,139 @@ class DailyTab(AnalysisTab):
         inactive = "" if series.output_active else " [inactive]"
         return f"{prefix}{series.name}{inactive}"
 
+    def series_date_label(self, series: AnalysisSeries) -> str:
+        if not series.saved and not series.analyses and not series.points:
+            return "未解析"
+        return series_display_name(series.started_at) if series.started_at else ""
+
+    def apply_series_item_style(self, series: AnalysisSeries, *items: QTableWidgetItem) -> None:
+        background = QColor("#e7f4df" if series.saved else "#ffe9c7")
+        foreground = QColor("#777777" if not series.output_active else "#20242a")
+        for item in items:
+            item.setBackground(background)
+            item.setForeground(foreground)
+        if not series.saved:
+            font = items[0].font()
+            font.setBold(True)
+            for item in items:
+                item.setFont(font)
+
     def render_series_list(self) -> None:
         current_series = self.selected_series()
+        self.updating_series_list = True
         self.series_list.blockSignals(True)
-        self.series_list.clear()
-        for series in self.series:
-            item = QListWidgetItem(self.series_label(series))
-            if not series.output_active:
-                item.setForeground(QColor("#777777"))
-            self.series_list.addItem(item)
+        self.series_list.setRowCount(len(self.series))
+        for row, series in enumerate(self.series):
+            date_item = QTableWidgetItem(self.series_date_label(series))
+            name_item = QTableWidgetItem(series.name)
+            self.apply_series_item_style(series, date_item, name_item)
+            self.series_list.setItem(row, 0, date_item)
+            self.series_list.setItem(row, 1, name_item)
+        self.series_list.resizeColumnsToContents()
         self.series_list.blockSignals(False)
+        self.updating_series_list = False
         if current_series in self.series:
-            self.series_list.setCurrentRow(self.series.index(current_series))
+            self.set_series_current_row(self.series.index(current_series))
         else:
-            self.series_list.setCurrentRow(-1)
+            self.set_series_current_row(-1)
         self.update_series_buttons()
+
+    def set_series_current_row(self, row: int) -> None:
+        if row < 0 or row >= len(self.series):
+            self.series_list.clearSelection()
+            self.series_list.setCurrentCell(-1, -1)
+            return
+        self.series_list.setCurrentCell(row, 0)
+        self.series_list.selectRow(row)
+
+    def series_item_changed(self, item: QTableWidgetItem) -> None:
+        if self.updating_series_list or self.analysis_mode not in ("daily", "set_test"):
+            return
+        row = item.row()
+        column = item.column()
+        if row < 0 or row >= len(self.series):
+            return
+        series = self.series[row]
+        if column == 0:
+            parsed = self.parse_series_datetime(item.text())
+            if parsed is None:
+                show_error(self, "日時エラー", ValueError("日時は YYYY/MM/DD HH:MM の形式で入力してください。"))
+                self.reset_series_row(row)
+                return
+            series.started_at = parsed.isoformat(timespec="minutes")
+            self.update_series_points(series)
+            self.persist_series_metadata(series, started_at=series.started_at)
+        elif column == 1:
+            name = item.text().strip()
+            if not name:
+                show_error(self, "Seriesエラー", ValueError("series名を入力してください。"))
+                self.reset_series_row(row)
+                return
+            series.name = name
+            self.update_series_points(series)
+            self.persist_series_metadata(series, series_name=series.name)
+        self.series_list.resizeColumnsToContents()
+
+    def parse_series_datetime(self, value: str) -> datetime | None:
+        text = value.strip()
+        for fmt in ("%Y/%m/%d %H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"):
+            try:
+                return datetime.strptime(text, fmt)
+            except ValueError:
+                pass
+        parsed = parse_datetime_or_none(text)
+        if parsed is None:
+            return None
+        return parsed.replace(second=0, microsecond=0)
+
+    def reset_series_row(self, row: int) -> None:
+        if row < 0 or row >= len(self.series):
+            return
+        series = self.series[row]
+        self.updating_series_list = True
+        self.series_list.blockSignals(True)
+        try:
+            date_item = self.series_list.item(row, 0)
+            if date_item is not None:
+                date_item.setText(self.series_date_label(series))
+            name_item = self.series_list.item(row, 1)
+            if name_item is not None:
+                name_item.setText(series.name)
+            if date_item is not None and name_item is not None:
+                self.apply_series_item_style(series, date_item, name_item)
+        finally:
+            self.series_list.blockSignals(False)
+            self.updating_series_list = False
+
+    def persist_series_metadata(
+        self,
+        series: AnalysisSeries,
+        started_at: str | None = None,
+        series_name: str | None = None,
+    ) -> None:
+        if not series.saved or series.session_id is None:
+            return
+        connection = connect_database(DEFAULT_DB_PATH)
+        try:
+            init_db(connection)
+            update_session_series(
+                connection,
+                series.session_id,
+                started_at=started_at,
+                series_name=series_name,
+            )
+            connection.commit()
+        except Exception as exc:
+            show_error(self, "Series更新エラー", exc)
+        finally:
+            connection.close()
+
+    def update_series_points(self, series: AnalysisSeries) -> None:
+        if series.points:
+            series.points = [
+                replace(point, analyzed_at=series.started_at or point.analyzed_at, series_name=series.name)
+                for point in series.points
+            ]
 
     def load_recent_saved_series(self) -> None:
         if self.analysis_mode != "daily":
@@ -1765,7 +1978,12 @@ class DailyTab(AnalysisTab):
             end_date=end_date,
             limit=limit,
         )
-        current = [series for series in self.series if series.source != "history"]
+        selected_machine = self.machine_name()
+        current = [
+            series
+            for series in self.series
+            if series.source != "history" and series.machine_name == selected_machine
+        ]
         current_session_ids = {
             series.session_id
             for series in current
@@ -1821,6 +2039,9 @@ class DailyTab(AnalysisTab):
         if series.source == "history":
             show_error(self, "保存エラー", ValueError("過去データはAnalyseタブでは保存できません。"))
             return False
+        if not series.analyses:
+            show_error(self, "保存エラー", ValueError("未解析seriesは保存できません。解析後に保存してください。"))
+            return False
         if series.saved:
             show_error(self, "保存エラー", ValueError("このシリーズは保存済みです。"))
             return True
@@ -1834,15 +2055,15 @@ class DailyTab(AnalysisTab):
         if latest is None:
             show_error(self, "保存エラー", ValueError("保存できる最新シリーズがありません。"))
             return False
-        self.series_list.setCurrentRow(0)
+        self.set_series_current_row(0)
         return self.save_selected_series()
 
     def mark_series_saved(self, series: AnalysisSeries) -> None:
         super().mark_series_saved(series)
         if self.analysis_mode in ("daily", "set_test"):
             for row, item_series in enumerate(self.series):
-                if item_series is series and self.series_list.item(row) is not None:
-                    self.series_list.item(row).setText(self.series_label(series))
+                if item_series is series:
+                    self.reset_series_row(row)
                     break
             self.update_series_buttons()
 
@@ -1861,9 +2082,10 @@ class DailyTab(AnalysisTab):
         except Exception as exc:
             show_error(self, "プレビューエラー", exc)
             return
-        review_state: dict[str, dict[str, list[ReportPoint]]] = {}
+        review_state: dict[str, object] = {"x_axis_mode": "series", "count": 10}
 
         def build_review(count: int) -> tuple[list[QPixmap], list[str]]:
+            review_state["count"] = count
             grouped = self.setup_review_data(selected_point, count)
             review_state["grouped"] = grouped
             return (
@@ -1871,9 +2093,14 @@ class DailyTab(AnalysisTab):
                     grouped,
                     self.machine_name(),
                     show_mode_boundary=False,
+                    x_axis_mode=str(review_state["x_axis_mode"]),
                 ),
                 list(grouped.keys()),
             )
+
+        def change_x_axis(mode: str) -> tuple[list[QPixmap], list[str]]:
+            review_state["x_axis_mode"] = mode
+            return build_review(int(review_state["count"]))
 
         try:
             pages, outline_titles = build_review(10)
@@ -1885,19 +2112,25 @@ class DailyTab(AnalysisTab):
             pages,
             outline_titles,
             self,
-            export_pdf_handler=lambda: self.export_saved_pdf_from_preview(review_state["grouped"]),
+            export_pdf_handler=lambda: self.export_saved_pdf_from_preview(
+                review_state["grouped"],
+                x_axis_mode=str(review_state["x_axis_mode"]),
+            ),
             show_save_result_button=False,
             review_count=10,
             count_changed_handler=build_review,
+            review_x_axis_mode=str(review_state["x_axis_mode"]),
+            x_axis_changed_handler=change_x_axis,
         ).exec()
 
     def export_pdf_clicked(self) -> None:
         if self.analysis_mode not in ("daily", "set_test"):
             super().export_pdf_clicked()
             return
-        review_state: dict[str, dict[str, list[ReportPoint]]] = {}
+        review_state: dict[str, object] = {"x_axis_mode": "series", "count": self.output_count.value()}
 
         def build_review(count: int) -> tuple[list[QPixmap], list[str]]:
+            review_state["count"] = count
             series_list = self.saved_series_for_output(count)
             if series_list is None:
                 return [], []
@@ -1910,9 +2143,14 @@ class DailyTab(AnalysisTab):
                     grouped,
                     self.machine_name(),
                     show_mode_boundary=False,
+                    x_axis_mode=str(review_state["x_axis_mode"]),
                 ),
                 list(grouped.keys()),
             )
+
+        def change_x_axis(mode: str) -> tuple[list[QPixmap], list[str]]:
+            review_state["x_axis_mode"] = mode
+            return build_review(int(review_state["count"]))
 
         try:
             pages, outline_titles = build_review(self.output_count.value())
@@ -1926,10 +2164,15 @@ class DailyTab(AnalysisTab):
             pages,
             outline_titles,
             self,
-            export_pdf_handler=lambda: self.export_saved_pdf_from_preview(review_state["grouped"]),
+            export_pdf_handler=lambda: self.export_saved_pdf_from_preview(
+                review_state["grouped"],
+                x_axis_mode=str(review_state["x_axis_mode"]),
+            ),
             show_save_result_button=False,
             review_count=self.output_count.value(),
             count_changed_handler=build_review,
+            review_x_axis_mode=str(review_state["x_axis_mode"]),
+            x_axis_changed_handler=change_x_axis,
         ).exec()
 
     def saved_series_for_output(self, count: int | None = None) -> list[AnalysisSeries] | None:
@@ -1962,6 +2205,7 @@ class DailyTab(AnalysisTab):
     def export_saved_pdf_from_preview(
         self,
         grouped: dict[str, list[ReportPoint]],
+        x_axis_mode: str = "series",
     ) -> bool:
         default_name = (
             f"{self.machine_name()}_report.pdf"
@@ -1982,6 +2226,7 @@ class DailyTab(AnalysisTab):
                 path,
                 machine_name=self.machine_name(),
                 show_mode_boundary=False,
+                x_axis_mode=x_axis_mode,
             )
         except Exception as exc:
             show_error(self, "PDF出力エラー", exc)
@@ -2023,6 +2268,7 @@ class DailyTab(AnalysisTab):
             series.analyses[row],
             series.started_at or datetime.now().isoformat(timespec="seconds"),
             series.inspection_type,
+            series.name,
         )
 
     def setup_review_data(self, selected_point: ReportPoint, count: int) -> dict[str, list[ReportPoint]]:
@@ -2044,7 +2290,12 @@ class DailyTab(AnalysisTab):
             return super().report_data_with_current_series(series)
         labels = self.current_preset_setup_labels()
         grouped: dict[str, list[ReportPoint]] = {label: [] for label in labels}
-        for item in reversed(self.series[:10]):
+        selected_machine_series = [
+            item
+            for item in self.series
+            if item.machine_name == self.machine_name()
+        ][:10]
+        for item in reversed(selected_machine_series):
             for point in self.series_report_points(item):
                 if point.setup_label in grouped:
                     grouped[point.setup_label].append(point)
@@ -2075,7 +2326,7 @@ class DailyTab(AnalysisTab):
         for plan_item, analysis in zip(series.plan, series.analyses):
             if not analysis.result.succeeded:
                 continue
-            points.append(self.report_point_from_analysis(plan_item, analysis, analyzed_at, series.inspection_type))
+            points.append(self.report_point_from_analysis(plan_item, analysis, analyzed_at, series.inspection_type, series.name))
         return points
 
     def report_point_from_analysis(
@@ -2084,6 +2335,7 @@ class DailyTab(AnalysisTab):
         analysis: Analysis,
         analyzed_at: str,
         inspection_type: str,
+        series_name: str = "",
     ) -> ReportPoint:
         label = plan_item.setup_label or plan_item.image_name
         result = analysis.result
@@ -2111,6 +2363,7 @@ class DailyTab(AnalysisTab):
             dy_negative_label=plan_item.dy_negative_label or "-dy",
             x_inverted=plan_item.x_inverted,
             inspection_type=inspection_type,
+            series_name=series_name,
         )
 
     def load_matching_history_for_point(
@@ -2126,6 +2379,7 @@ class DailyTab(AnalysisTab):
                 """
                 SELECT
                     analysis_results.analyzed_at,
+                    sessions.series_name,
                     analysis_results.image_name,
                     analysis_results.image_path,
                     analysis_results.note AS setup_label,
@@ -2150,12 +2404,11 @@ class DailyTab(AnalysisTab):
                     sessions.inspection_type
                 FROM analysis_results
                 JOIN sessions ON sessions.id = analysis_results.session_id
-                LEFT JOIN machines ON machines.id = sessions.machine_id
                 WHERE analysis_results.succeeded = 1
                   AND sessions.inspection_type = 'daily'
                   AND analysis_results.note = ?
                   AND analysis_results.analyzed_at <= ?
-                  AND (? IS NULL OR COALESCE(machines.name, sessions.machine_name) = ?)
+                  AND (? IS NULL OR sessions.machine_name = ?)
                   AND ((? IS NULL AND analysis_results.gantry_angle IS NULL) OR ABS(analysis_results.gantry_angle - ?) < 0.000001)
                   AND ((? IS NULL AND analysis_results.collimator_angle IS NULL) OR ABS(analysis_results.collimator_angle - ?) < 0.000001)
                   AND ((? IS NULL AND analysis_results.couch_angle IS NULL) OR ABS(analysis_results.couch_angle - ?) < 0.000001)
@@ -2193,6 +2446,7 @@ class DailyTab(AnalysisTab):
                 """
                 SELECT
                     analysis_results.analyzed_at,
+                    sessions.series_name,
                     analysis_results.image_name,
                     analysis_results.image_path,
                     analysis_results.note AS setup_label,
@@ -2217,10 +2471,9 @@ class DailyTab(AnalysisTab):
                     sessions.inspection_type
                 FROM analysis_results
                 JOIN sessions ON sessions.id = analysis_results.session_id
-                LEFT JOIN machines ON machines.id = sessions.machine_id
                 WHERE analysis_results.succeeded = 1
                   AND sessions.inspection_type = 'daily'
-                  AND (? IS NULL OR COALESCE(machines.name, sessions.machine_name) = ?)
+                  AND (? IS NULL OR sessions.machine_name = ?)
                   AND ((? IS NULL AND analysis_results.gantry_angle IS NULL) OR ABS(analysis_results.gantry_angle - ?) < 0.000001)
                   AND ((? IS NULL AND analysis_results.collimator_angle IS NULL) OR ABS(analysis_results.collimator_angle - ?) < 0.000001)
                   AND ((? IS NULL AND analysis_results.couch_angle IS NULL) OR ABS(analysis_results.couch_angle - ?) < 0.000001)
@@ -2282,6 +2535,7 @@ class DailyTab(AnalysisTab):
                         dy_negative_label=plan_item.dy_negative_label or "-dy",
                         x_inverted=plan_item.x_inverted,
                         inspection_type=series.inspection_type,
+                        series_name=series.name,
                     )
                 )
         return points[-limit:]
@@ -2295,6 +2549,7 @@ class ManageTab(QWidget):
         self.on_changed = on_changed
         self.setup_edit_row: int | None = None
         self.setup_edit_mode: str | None = None
+        self.selected_machine_name: str | None = None
         self.loading_setups = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 10)
@@ -2320,10 +2575,19 @@ class ManageTab(QWidget):
         self.machine_select = RoundedComboBox()
         self.machine_select.currentTextChanged.connect(self.select_machine)
         self.machine_name = QLineEdit()
-        self.machine_save_button = QPushButton("Register")
+        self.machine_save_button = QPushButton("Rename")
         self.machine_save_button.clicked.connect(self.save_machine)
+        self.machine_delete_button = QPushButton("Delete")
+        self.machine_delete_button.clicked.connect(self.delete_machine)
         self.default_machine_select = RoundedComboBox()
-        self.default_machine_select.currentTextChanged.connect(self.default_machine_changed)
+        self.default_machine_select.setEditable(True)
+        self.default_machine_select.activated.connect(
+            lambda _index: self.default_machine_changed(self.default_machine_select.currentText())
+        )
+        if self.default_machine_select.lineEdit() is not None:
+            self.default_machine_select.lineEdit().editingFinished.connect(
+                lambda: self.default_machine_changed(self.default_machine_select.currentText())
+            )
         layout.addWidget(self.machine_select)
         machine_fields = QHBoxLayout()
         machine_fields.setSpacing(6)
@@ -2333,6 +2597,7 @@ class ManageTab(QWidget):
         machine_fields.addWidget(name_label)
         machine_fields.addWidget(self.machine_name, stretch=1)
         machine_fields.addWidget(self.machine_save_button)
+        machine_fields.addWidget(self.machine_delete_button)
         layout.addLayout(machine_fields)
         default_row = QHBoxLayout()
         default_row.setSpacing(6)
@@ -2407,11 +2672,14 @@ class ManageTab(QWidget):
         self.preset_select.currentTextChanged.connect(self.update_preset_action_label)
         self.preset_edit_button = QPushButton("Register")
         self.preset_edit_button.clicked.connect(self.edit_selected_preset)
+        self.preset_delete_button = QPushButton("Delete")
+        self.preset_delete_button.clicked.connect(self.delete_preset)
         self.default_preset_select = RoundedComboBox()
         self.default_preset_select.currentTextChanged.connect(self.default_preset_changed)
         self.preset_select.setFixedHeight(self.preset_edit_button.sizeHint().height())
         preset_top.addWidget(self.preset_select, stretch=1)
         preset_top.addWidget(self.preset_edit_button)
+        preset_top.addWidget(self.preset_delete_button)
         layout.addLayout(preset_top)
         default_row = QHBoxLayout()
         default_row.setSpacing(6)
@@ -2465,19 +2733,26 @@ class ManageTab(QWidget):
         current_machine = self.machine_select.currentText()
         self.machine_select.blockSignals(True)
         self.machine_select.clear()
-        self.machine_select.addItem("New", None)
+        machine_names = [machine["name"] for machine in machines]
         for machine in machines:
-            self.machine_select.addItem(machine["name"], int(machine["id"]))
-        if current_machine and current_machine != "New":
+            self.machine_select.addItem(machine["name"], machine["name"])
+        if current_machine in machine_names:
             self.machine_select.setCurrentText(current_machine)
-        else:
+        elif default_machine in machine_names:
             self.machine_select.setCurrentText(default_machine)
+        elif machine_names:
+            self.machine_select.setCurrentText(machine_names[0])
         self.machine_select.blockSignals(False)
         self.default_machine_select.blockSignals(True)
         self.default_machine_select.clear()
         for machine in machines:
-            self.default_machine_select.addItem(machine["name"], int(machine["id"]))
-        self.default_machine_select.setCurrentText(default_machine)
+            self.default_machine_select.addItem(machine["name"], machine["name"])
+        if default_machine in machine_names:
+            self.default_machine_select.setCurrentText(default_machine)
+        elif default_machine:
+            self.default_machine_select.setEditText(default_machine)
+        elif machine_names:
+            self.default_machine_select.setCurrentText(machine_names[0])
         self.default_machine_select.blockSignals(False)
         self.select_machine()
 
@@ -2494,9 +2769,10 @@ class ManageTab(QWidget):
         self.preset_select.blockSignals(True)
         self.preset_select.clear()
         self.preset_select.addItem("New")
+        preset_names = [preset["name"] for preset in presets]
         for preset in presets:
             self.preset_select.addItem(preset["name"])
-        if current:
+        if current in preset_names:
             self.preset_select.setCurrentText(current)
         self.preset_select.blockSignals(False)
         self.update_preset_action_label()
@@ -2505,19 +2781,24 @@ class ManageTab(QWidget):
         self.default_preset_select.addItem("")
         for preset in presets:
             self.default_preset_select.addItem(preset["name"])
-        self.default_preset_select.setCurrentText(default_preset)
+        if default_preset in preset_names:
+            self.default_preset_select.setCurrentText(default_preset)
         self.default_preset_select.blockSignals(False)
         self.ok_threshold.blockSignals(True)
         self.ok_threshold.setValue(ok_threshold)
         self.ok_threshold.blockSignals(False)
 
     def select_machine(self, *_args) -> None:
-        selected = self.machine_select.currentText()
-        self.machine_name.clear() if selected == "New" else self.machine_name.setText(selected)
-        self.machine_save_button.setText("Register" if selected == "New" else "Edit")
+        selected = self.machine_select.currentText().strip()
+        self.selected_machine_name = selected or None
+        self.machine_name.setText(selected)
+        self.machine_save_button.setEnabled(bool(selected))
+        self.machine_delete_button.setEnabled(bool(selected))
 
     def update_preset_action_label(self, *_args) -> None:
-        self.preset_edit_button.setText("Register" if self.preset_select.currentText() == "New" else "Edit")
+        is_new = self.preset_select.currentText() == "New"
+        self.preset_edit_button.setText("Register" if is_new else "Edit")
+        self.preset_delete_button.setEnabled(not is_new)
 
     def render_setup_table(self, setups) -> None:
         self.loading_setups = True
@@ -2750,26 +3031,29 @@ class ManageTab(QWidget):
         if not name:
             show_error(self, "装置エラー", ValueError("装置名を入力してください。"))
             return
+        selected = (self.selected_machine_name or "").strip()
+        if not selected:
+            show_error(self, "装置エラー", ValueError("変更する装置名を選択してください。"))
+            return
+        if selected == name:
+            return
+        reply = QMessageBox.question(
+            self,
+            "装置名変更",
+            f"{selected} の既存解析結果を {name} に一括変更しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         connection = connect_database(DEFAULT_DB_PATH)
         try:
             init_db(connection)
-            selected = self.machine_select.currentText()
-            selected_id = self.machine_select.currentData()
-            if selected_id is not None:
-                default_machine = get_default_machine_name(connection)
-                connection.execute(
-                    """
-                    UPDATE machines
-                    SET name = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (name, datetime.now().isoformat(timespec="seconds"), int(selected_id)),
-                )
-                if default_machine == selected:
-                    set_default_machine_name(connection, name)
-            else:
-                get_or_create_machine(connection, name)
+            rename_machine_results(connection, selected, name)
             connection.commit()
+        except Exception as exc:
+            show_error(self, "装置エラー", exc)
+            return
         finally:
             connection.close()
         self.refresh()
@@ -2777,10 +3061,44 @@ class ManageTab(QWidget):
         self.select_machine()
         self.on_changed()
 
+    def delete_machine(self) -> None:
+        selected_name = (self.selected_machine_name or "").strip()
+        if not selected_name:
+            show_error(self, "装置削除エラー", ValueError("削除する装置を選択してください。"))
+            return
+        connection = connect_database(DEFAULT_DB_PATH)
+        try:
+            init_db(connection)
+            result_count = count_machine_results(connection, selected_name)
+            reply = QMessageBox.question(
+                self,
+                "装置削除",
+                f"{selected_name} の解析結果 {result_count} series を削除しますか？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            delete_machine_results(connection, selected_name)
+            default_machine = get_default_machine_name(connection)
+            if default_machine == selected_name:
+                remaining = [
+                    machine["name"]
+                    for machine in list_machines(connection)
+                    if machine["name"] != selected_name
+                ]
+                set_default_machine_name(connection, remaining[0] if remaining else "machine1")
+            connection.commit()
+        except Exception as exc:
+            show_error(self, "装置削除エラー", exc)
+            return
+        finally:
+            connection.close()
+        self.refresh()
+        self.on_changed()
+
     def save_default_machine(self) -> None:
         name = self.machine_name.text().strip() or self.machine_select.currentText().strip()
-        if name == "New":
-            name = ""
         if not name:
             show_error(self, "装置エラー", ValueError("デフォルト装置を指定してください。"))
             return
@@ -2815,6 +3133,43 @@ class ManageTab(QWidget):
             connection.commit()
         finally:
             connection.close()
+        self.on_changed()
+
+    def delete_preset(self) -> None:
+        name = self.preset_select.currentText().strip()
+        if not name or name == "New":
+            show_error(self, "Preset削除エラー", ValueError("削除するpresetを選択してください。"))
+            return
+        connection = connect_database(DEFAULT_DB_PATH)
+        try:
+            init_db(connection)
+            preset = get_setup_preset(connection, name)
+            if preset is None:
+                raise ValueError("登録済みpresetを選択してください。")
+            reply = QMessageBox.question(
+                self,
+                "Preset削除",
+                f"{name} を削除しますか？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            delete_setup_preset(connection, int(preset["id"]))
+            remaining = [
+                preset_row
+                for preset_row in list_setup_presets(connection)
+                if int(preset_row["id"]) != int(preset["id"])
+            ]
+            if (get_setting(connection, DEFAULT_PRESET_SETTING) or "") == name:
+                set_setting(connection, DEFAULT_PRESET_SETTING, remaining[0]["name"] if remaining else "")
+            connection.commit()
+        except Exception as exc:
+            show_error(self, "Preset削除エラー", exc)
+            return
+        finally:
+            connection.close()
+        self.refresh()
         self.on_changed()
 
     def ok_threshold_changed(self, value: float) -> None:

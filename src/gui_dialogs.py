@@ -55,6 +55,8 @@ class PagePreviewDialog(QDialog):
         show_save_result_button: bool = True,
         review_count: int | None = None,
         count_changed_handler: Callable[[int], tuple[list[QPixmap], list[str]]] | None = None,
+        review_x_axis_mode: str | None = None,
+        x_axis_changed_handler: Callable[[str], tuple[list[QPixmap], list[str]]] | None = None,
     ) -> None:
         super().__init__(parent)
         self.pages = pages
@@ -62,6 +64,7 @@ class PagePreviewDialog(QDialog):
         self.save_result_handler = save_result_handler
         self.export_pdf_handler = export_pdf_handler
         self.count_changed_handler = count_changed_handler
+        self.x_axis_changed_handler = x_axis_changed_handler
         self.updating_count = False
 
         self.setWindowTitle(title)
@@ -70,17 +73,32 @@ class PagePreviewDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
-        if review_count is not None:
+        if review_count is not None or review_x_axis_mode is not None:
             count_row = QHBoxLayout()
             count_row.addStretch()
-            self.review_count_spin = QSpinBox()
-            self.review_count_spin.setRange(1, 50)
-            self.review_count_spin.setValue(review_count)
-            self.review_count_spin.valueChanged.connect(self.review_count_changed)
-            count_row.addWidget(compact_field("Count", self.review_count_spin))
+            if review_x_axis_mode is not None:
+                self.review_x_axis_combo = RoundedComboBox()
+                self.review_x_axis_combo.addItem("Series", "series")
+                self.review_x_axis_combo.addItem("Date", "date")
+                index = self.review_x_axis_combo.findData(review_x_axis_mode)
+                if index >= 0:
+                    self.review_x_axis_combo.setCurrentIndex(index)
+                self.review_x_axis_combo.currentIndexChanged.connect(lambda _index: self.review_x_axis_changed())
+                count_row.addWidget(compact_field("X Axis", self.review_x_axis_combo))
+            else:
+                self.review_x_axis_combo = None
+            if review_count is not None:
+                self.review_count_spin = QSpinBox()
+                self.review_count_spin.setRange(1, 50)
+                self.review_count_spin.setValue(review_count)
+                self.review_count_spin.valueChanged.connect(self.review_count_changed)
+                count_row.addWidget(compact_field("Count", self.review_count_spin))
+            else:
+                self.review_count_spin = None
             layout.addLayout(count_row)
         else:
             self.review_count_spin = None
+            self.review_x_axis_combo = None
 
         preview_layout = QHBoxLayout()
 
@@ -231,6 +249,20 @@ class PagePreviewDialog(QDialog):
             return
         try:
             pages, outline_titles = self.count_changed_handler(value)
+        except Exception as exc:
+            show_error(self, "プレビューエラー", exc)
+            return
+        self.pages = pages
+        self.outline_titles = outline_titles
+        self.rebuild_outline()
+        self.show_page(self.outline_list.currentRow())
+
+    def review_x_axis_changed(self) -> None:
+        if self.x_axis_changed_handler is None or self.review_x_axis_combo is None:
+            return
+        mode = str(self.review_x_axis_combo.currentData() or "series")
+        try:
+            pages, outline_titles = self.x_axis_changed_handler(mode)
         except Exception as exc:
             show_error(self, "プレビューエラー", exc)
             return

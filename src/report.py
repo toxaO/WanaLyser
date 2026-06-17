@@ -45,6 +45,7 @@ class ReportPoint:
     dy_negative_label: str = "-dy"
     x_inverted: bool = False
     inspection_type: str = ""
+    series_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ def generate_pdf_report(
     output_path: str | Path,
     machine_name: str | None = None,
     limit: int = 10,
+    x_axis_mode: str = "series",
 ) -> None:
     app = QGuiApplication.instance()
     if app is None:
@@ -78,7 +80,7 @@ def generate_pdf_report(
     if not grouped:
         raise ValueError("No analysis results are available for report output.")
 
-    write_grouped_pdf(grouped, output_path, machine_name)
+    write_grouped_pdf(grouped, output_path, machine_name, x_axis_mode=x_axis_mode)
 
 
 def write_grouped_pdf(
@@ -86,6 +88,7 @@ def write_grouped_pdf(
     output_path: str | Path,
     machine_name: str | None = None,
     show_mode_boundary: bool = False,
+    x_axis_mode: str = "series",
 ) -> None:
     if not grouped:
         raise ValueError("No analysis results are available for report output.")
@@ -109,6 +112,7 @@ def write_grouped_pdf(
                 points,
                 machine_name,
                 show_mode_boundary,
+                x_axis_mode,
             )
     finally:
         painter.end()
@@ -118,6 +122,7 @@ def render_report_pages(
     db_path: str | Path,
     machine_name: str | None = None,
     limit: int = 10,
+    x_axis_mode: str = "series",
 ) -> list[QPixmap]:
     app = QGuiApplication.instance()
     if app is None:
@@ -133,13 +138,14 @@ def render_report_pages(
     if not grouped:
         raise ValueError("No analysis results are available for report preview.")
 
-    return render_grouped_report_pages(grouped, machine_name)
+    return render_grouped_report_pages(grouped, machine_name, x_axis_mode=x_axis_mode)
 
 
 def render_grouped_report_pages(
     grouped: dict[str, list[ReportPoint]],
     machine_name: str | None = None,
     show_mode_boundary: bool = False,
+    x_axis_mode: str = "series",
 ) -> list[QPixmap]:
     pages: list[QPixmap] = []
     page_rect = QRectF(0, 0, 794, 1123)
@@ -154,6 +160,7 @@ def render_grouped_report_pages(
                 points,
                 machine_name,
                 show_mode_boundary,
+                x_axis_mode,
             )
         finally:
             painter.end()
@@ -171,9 +178,8 @@ def load_report_data(
         SELECT DISTINCT analysis_results.note AS setup_label
         FROM analysis_results
         JOIN sessions ON sessions.id = analysis_results.session_id
-        LEFT JOIN machines ON machines.id = sessions.machine_id
         WHERE analysis_results.note IS NOT NULL
-          AND (? IS NULL OR COALESCE(machines.name, sessions.machine_name) = ?)
+          AND (? IS NULL OR sessions.machine_name = ?)
         ORDER BY analysis_results.note
         """,
         (machine_name, machine_name),
@@ -186,6 +192,7 @@ def load_report_data(
             """
             SELECT
                 analysis_results.analyzed_at,
+                sessions.series_name,
                 analysis_results.image_name,
                 analysis_results.image_path,
                 analysis_results.note AS setup_label,
@@ -210,10 +217,9 @@ def load_report_data(
                 sessions.inspection_type
             FROM analysis_results
             JOIN sessions ON sessions.id = analysis_results.session_id
-            LEFT JOIN machines ON machines.id = sessions.machine_id
             WHERE analysis_results.note = ?
               AND analysis_results.succeeded = 1
-              AND (? IS NULL OR COALESCE(machines.name, sessions.machine_name) = ?)
+              AND (? IS NULL OR sessions.machine_name = ?)
             ORDER BY analysis_results.analyzed_at DESC, analysis_results.id DESC
             LIMIT ?
             """,
@@ -244,6 +250,7 @@ def load_report_data(
                 dy_negative_label=row["dy_negative_label"] or "-dy",
                 x_inverted=bool(row["x_inverted"]),
                 inspection_type=row["inspection_type"] or "",
+                series_name=row["series_name"] or "",
             )
             for row in reversed(rows)
         ]
@@ -259,6 +266,7 @@ def draw_setup_page(
     points: list[ReportPoint],
     machine_name: str | None,
     show_mode_boundary: bool,
+    x_axis_mode: str = "series",
 ) -> None:
     page = writer.pageLayout().paintRectPixels(writer.resolution())
     draw_setup_content(
@@ -268,6 +276,7 @@ def draw_setup_page(
         points,
         machine_name,
         show_mode_boundary,
+        x_axis_mode,
     )
 
 
@@ -278,6 +287,7 @@ def draw_setup_content(
     points: list[ReportPoint],
     machine_name: str | None,
     show_mode_boundary: bool = False,
+    x_axis_mode: str = "series",
 ) -> None:
     margin = 48
     width = page.width()
@@ -317,6 +327,7 @@ def draw_setup_content(
         y_max=1.5,
         reference_lines=[-1.0, 0.0, 1.0],
         show_mode_boundary=show_mode_boundary,
+        x_axis_mode=x_axis_mode,
     )
     draw_single_trend_chart(
         painter,
@@ -329,6 +340,7 @@ def draw_setup_content(
         y_max=1.5,
         reference_lines=[-1.0, 0.0, 1.0],
         show_mode_boundary=show_mode_boundary,
+        x_axis_mode=x_axis_mode,
     )
     draw_single_trend_chart(
         painter,
@@ -341,6 +353,7 @@ def draw_setup_content(
         y_max=1.5,
         reference_lines=[-1.0, 0.0, 1.0],
         show_mode_boundary=show_mode_boundary,
+        x_axis_mode=x_axis_mode,
     )
     draw_position_chart(painter, position_rect, points)
     draw_value_table(painter, table_rect, points, orientation)
@@ -358,6 +371,7 @@ def draw_single_trend_chart(
     y_max: float,
     reference_lines: list[float],
     show_mode_boundary: bool = False,
+    x_axis_mode: str = "series",
 ) -> None:
     draw_chart_frame(painter, rect, title)
     if not values:
@@ -370,7 +384,7 @@ def draw_single_trend_chart(
     draw_line_series(painter, rect, values, points, y_min, y_max, color)
 
     painter.setPen(QColor("#444444"))
-    for index, label in enumerate(axis_labels(points)):
+    for index, label in enumerate(axis_labels(points, x_axis_mode)):
         x = series_x(rect, index, len(points))
         if index == 0:
             x += 12
@@ -702,13 +716,13 @@ def short_date(value: str) -> str:
         return value[:10]
 
 
-def axis_labels(points: list[ReportPoint]) -> list[str]:
-    date_counts: dict[str, int] = {}
+def axis_labels(points: list[ReportPoint], x_axis_mode: str = "series") -> list[str]:
+    label_counts: dict[str, int] = {}
     labels: list[str] = []
     for point in points:
-        label = short_date(point.analyzed_at)
-        date_counts[label] = date_counts.get(label, 0) + 1
-        count = date_counts[label]
+        label = point.series_name if x_axis_mode == "series" and point.series_name else short_date(point.analyzed_at)
+        label_counts[label] = label_counts.get(label, 0) + 1
+        count = label_counts[label]
         labels.append(label if count == 1 else f"{label}_({count})")
     return labels
 

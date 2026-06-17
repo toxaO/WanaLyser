@@ -195,7 +195,7 @@ def print_machines(rows) -> None:
         print("no machines")
         return
     for row in rows:
-        print(f'{row["id"]}: {row["name"]}')
+        print(row["name"])
 
 
 def parse_args() -> argparse.Namespace:
