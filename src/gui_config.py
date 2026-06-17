@@ -241,12 +241,12 @@ QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
     height: 5px;
 }
 QComboBox {
-    padding-right: 30px;
+    padding-right: 20px;
 }
 QComboBox::drop-down {
     subcontrol-origin: border;
     subcontrol-position: top right;
-    width: 28px;
+    width: 18px;
     border: none;
     border-top-right-radius: 6px;
     border-bottom-right-radius: 6px;
@@ -256,9 +256,9 @@ QComboBox::drop-down:hover {
     background: #edf4ff;
 }
 QComboBox::down-arrow {
-    image: none;
-    width: 0px;
-    height: 0px;
+    image: url(src/assets/spin-down.svg);
+    width: 8px;
+    height: 5px;
     border: none;
 }
 QComboBox QAbstractItemView {

@@ -78,17 +78,6 @@ class RoundedComboBox(QComboBox):
         view.setStyleSheet(self.POPUP_STYLESHEET)
         self.setView(view)
 
-    def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setPen(QColor("#64748b"))
-        painter.drawText(
-            self.rect().adjusted(0, 0, -10, 0),
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-            "▼",
-        )
-
-
 def pixmap_from_bgr(image) -> QPixmap:
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     height, width, channels = rgb.shape
