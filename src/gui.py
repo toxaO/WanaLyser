@@ -234,7 +234,7 @@ class AnalysisTab(QWidget):
 
         self.input_default_path = load_app_setting(INPUT_PATH_SETTING, default_image_path)
         self.image_path = QLineEdit()
-        self.image_path.setMinimumWidth(120)
+        self.image_path.setMinimumWidth(90)
         self.image_path.editingFinished.connect(self.input_path_edited)
         image_button = QPushButton("Browse")
         image_button.clicked.connect(self.browse_images)
@@ -250,8 +250,8 @@ class AnalysisTab(QWidget):
 
         self.machine_combo = RoundedComboBox()
         self.machine_combo.setEditable(True)
-        self.machine_combo.setMinimumWidth(92)
-        self.machine_combo.setMaximumWidth(130)
+        self.machine_combo.setMinimumWidth(118)
+        self.machine_combo.setMaximumWidth(170)
         self.machine_combo.currentTextChanged.connect(self.machine_selection_changed)
         layout.addWidget(self.machine_combo)
 
