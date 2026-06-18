@@ -422,7 +422,7 @@ class AnalysisTab(QWidget):
         self.series_review_button = QPushButton("Series Review")
         self.series_review_button.clicked.connect(self.export_pdf_clicked)
         self.delete_row_button = QPushButton("Delete Row")
-        self.delete_row_button.clicked.connect(self.delete_selected_simple_row)
+        self.delete_row_button.clicked.connect(self.delete_selected_analysis_row)
         self.delete_row_button.setVisible(False)
         self.csv_button = QPushButton("Export CSV")
         self.csv_button.clicked.connect(self.export_current_table_csv)
@@ -491,6 +491,9 @@ class AnalysisTab(QWidget):
 
     def delete_selected_simple_row(self) -> None:
         return
+
+    def delete_selected_analysis_row(self) -> None:
+        self.delete_selected_simple_row()
 
     def setup_review_clicked(self) -> None:
         return
@@ -1316,6 +1319,7 @@ class DailyTab(AnalysisTab):
         )
         self.setObjectName("AnalysePage")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.delete_row_button.setVisible(True)
         self.apply_mode_style()
         self.series_list.currentCellChanged.connect(lambda row, _column, _previous_row, _previous_column: self.select_series(row))
         self.configure_series_panel_width(True)
@@ -1362,7 +1366,7 @@ class DailyTab(AnalysisTab):
             self.save_series_button.setVisible(True)
             self.remove_series_button.setVisible(True)
             self.active_toggle_button.setVisible(True)
-            self.delete_row_button.setVisible(False)
+            self.delete_row_button.setVisible(True)
             self.series_review_button.setEnabled(True)
             self.load_plan_preview()
             self.load_recent_saved_series()
@@ -1466,6 +1470,7 @@ class DailyTab(AnalysisTab):
         self.series_list.setVisible(True)
         self.remove_series_button.setVisible(True)
         self.active_toggle_button.setVisible(True)
+        self.delete_row_button.setVisible(False)
         self.update_set_test_series_buttons()
         self.render_plan_preview(self.loaded_plan)
         self.log("Set Test modeを開始しました。")
@@ -1475,6 +1480,7 @@ class DailyTab(AnalysisTab):
         self.inspection_type.setCurrentText("simple_test")
         self.series_review_button.setEnabled(False)
         self.delete_row_button.setVisible(True)
+        self.delete_row_button.setEnabled(True)
         self.series_query_toggle.setChecked(False)
         self.series_query_toggle.setVisible(False)
         self.series_query_frame.setVisible(False)
@@ -1714,6 +1720,61 @@ class DailyTab(AnalysisTab):
         else:
             self.reset_preview()
 
+    def delete_selected_analysis_row(self) -> None:
+        if self.analysis_mode == "simple_test":
+            self.delete_selected_simple_row()
+            return
+        if self.analysis_mode != "daily":
+            return
+        self.delete_selected_daily_row()
+
+    def delete_selected_daily_row(self) -> None:
+        series = self.selected_series()
+        row = self.selected_row()
+        if series is None:
+            self.delete_loaded_plan_row(row)
+            return
+        if series.saved or series.source == "history":
+            show_error(self, "行削除エラー", ValueError("保存済みseriesの行は削除できません。"))
+            return
+        if row is None or row < 0 or row >= len(series.plan):
+            show_error(self, "行削除エラー", ValueError("削除する行を選択してください。"))
+            return
+        del series.plan[row]
+        if row < len(series.analyses):
+            del series.analyses[row]
+        series.plan = [
+            replace(item, order=index + 1)
+            for index, item in enumerate(series.plan)
+        ]
+        if series.source == "preview" or not series.analyses:
+            self.loaded_plan = series.plan
+        self.current_series = series
+        self.render_series(series)
+        if series.plan:
+            self.select_preview_row(min(row, len(series.plan) - 1))
+        else:
+            self.reset_preview()
+        self.update_series_buttons()
+        self.log(f"Daily seriesから行を削除しました: {series.name}")
+
+    def delete_loaded_plan_row(self, row: int | None) -> None:
+        if row is None or row < 0 or row >= len(self.loaded_plan):
+            show_error(self, "行削除エラー", ValueError("削除する行を選択してください。"))
+            return
+        del self.loaded_plan[row]
+        self.loaded_plan = [
+            replace(item, order=index + 1)
+            for index, item in enumerate(self.loaded_plan)
+        ]
+        self.render_plan_preview(self.loaded_plan)
+        if self.loaded_plan:
+            self.select_preview_row(min(row, len(self.loaded_plan) - 1))
+        else:
+            self.reset_preview()
+        self.update_series_buttons()
+        self.log("Dailyの未解析行を削除しました。")
+
     def update_preview_from_selection(self) -> None:
         if self.analysis_mode != "simple_test":
             super().update_preview_from_selection()
@@ -1758,9 +1819,20 @@ class DailyTab(AnalysisTab):
         row = self.series_list.currentRow()
         has_selection = 0 <= row < len(self.series)
         can_save = has_selection and bool(self.series[row].analyses) and not self.series[row].saved
+        can_delete_row = (
+            has_selection
+            and self.series[row].source != "history"
+            and not self.series[row].saved
+            and bool(self.series[row].plan)
+        ) or (
+            self.analysis_mode == "daily"
+            and not has_selection
+            and bool(self.loaded_plan)
+        )
         self.remove_series_button.setEnabled(has_selection)
         self.save_series_button.setEnabled(can_save)
         self.active_toggle_button.setEnabled(has_selection)
+        self.delete_row_button.setEnabled(can_delete_row)
         self.update_analyse_button_state()
 
     def update_set_test_series_buttons(self) -> None:
