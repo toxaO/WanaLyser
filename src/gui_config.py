@@ -256,9 +256,9 @@ QComboBox::drop-down:hover {
     background: #edf4ff;
 }
 QComboBox::down-arrow {
-    image: url(src/assets/spin-down.svg);
-    width: 8px;
-    height: 5px;
+    image: none;
+    width: 0px;
+    height: 0px;
     border: none;
 }
 QComboBox QAbstractItemView {
