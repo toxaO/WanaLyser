@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QListView,
     QMessageBox,
+    QStyle,
+    QStyleOptionComboBox,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -80,11 +82,19 @@ class RoundedComboBox(QComboBox):
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        arrow_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            option,
+            QStyle.SubControl.SC_ComboBoxArrow,
+            self,
+        )
         painter = QPainter(self)
         painter.setPen(QColor("#64748b"))
         painter.drawText(
-            self.rect().adjusted(0, 0, -10, 0),
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            arrow_rect,
+            Qt.AlignmentFlag.AlignCenter,
             "▼",
         )
 
